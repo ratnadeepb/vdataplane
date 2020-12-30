@@ -136,8 +136,8 @@ fn main() {
 	MEMPOOL.set(mempool);
 
 	log::info!("setup ports");
-	let eth_devs = vec![String::from("0000:07:00.0"), String::from("0000:07:00.1")];
-	for port in eth_devs {
-		Port::new(port).unwrap().configure().unwrap();
+	let eth_devs = vec!["0000:07:00.0", "0000:07:00.1"];
+	for id in 0..=1 {
+		Port::new(eth_devs[id], id as u16).unwrap().configure().unwrap();
 	}
 }

@@ -7,13 +7,14 @@ use std::{ffi::CString, os::raw::c_char};
 use super::PortError;
 use crate::{NUM_RX_THREADS, NUM_TX_THREADS};
 
-pub struct Port {
+pub struct Port<'a> {
 	pub(crate) id: u16,
-	pub(crate) device: String,
+	pub(crate) device: &'a str,
 	pub(crate) dev_info: dpdk_ffi::rte_eth_dev_info,
 }
 
-impl Port {
+impl<'a> Port<'a> {
+	const PORTMASK: u8 = 0x02;
 	const DEFAULT_RSS_HF: u64 = (dpdk_ffi::ETH_RSS_IP | dpdk_ffi::ETH_RSS_TCP |dpdk_ffi::ETH_RSS_UDP | dpdk_ffi::ETH_RSS_SCTP | dpdk_ffi::ETH_RSS_L2_PAYLOAD) as u64;
 
 	const RSS_SYMMETRIC_KEY: [u8; 40] = [
@@ -22,27 +23,38 @@ impl Port {
 		0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a,
 	];
 
-	pub fn new(device: String) -> Result<Self, PortError> {
-		let mut id = 0u16;
-		let cstr: CString;
-		match CString::new(&device[..]) {
-			Ok(cstring) => cstr = cstring,
-			Err(_) => return Err(PortError::NoDevice),
-		}
-		match unsafe { dpdk_ffi::rte_eth_dev_get_port_by_name(cstr.as_ptr() as *const c_char, &mut id) } {
-			0 => {
-				let mut dev_info = dpdk_ffi::rte_eth_dev_info::default();
-				match unsafe { dpdk_ffi::rte_eth_dev_info_get(id, &mut dev_info) } {
-					0 => Ok(Self {
-							id,
-							device,
-							dev_info,
-						}),
-					_ => Err(PortError::new()),
-				}
-			},
+	// pub fn new(device: String) -> Result<Self, PortError> {
+	pub fn new(device: &'a str, id: u16) -> Result<Self, PortError> {
+		let mut dev_info = dpdk_ffi::rte_eth_dev_info::default();
+		match unsafe { dpdk_ffi::rte_eth_dev_info_get(id, &mut dev_info) } {
+			0 => Ok(Self {
+					id,
+					device,
+					dev_info,
+				}),
 			_ => Err(PortError::new()),
 		}
+		// let mut id = 0u16;
+		// let cstr: CString;
+		// match CString::new(&device[..]) {
+		// 	Ok(cstring) => cstr = cstring,
+		// 	Err(_) => return Err(PortError::NoDevice),
+		// }
+		// match unsafe { dpdk_ffi::rte_eth_dev_get_port_by_name(cstr.as_ptr() as *const c_char, &mut id) } {
+		// 	0 => {
+		// 		println!("got the port by name"); // debug
+		// 		let mut dev_info = dpdk_ffi::rte_eth_dev_info::default();
+		// 		match unsafe { dpdk_ffi::rte_eth_dev_info_get(id, &mut dev_info) } {
+		// 			0 => Ok(Self {
+		// 					id,
+		// 					device,
+		// 					dev_info,
+		// 				}),
+		// 			_ => Err(PortError::new()),
+		// 		}
+		// 	},
+		// 	_ => Err(PortError::new()),
+		// }
 	}
 
 	pub fn configure(&mut self) -> Result<(), PortError> {
