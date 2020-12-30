@@ -16,7 +16,7 @@ pub use port::*;
 use thiserror::Error;
 use libc::{EINVAL, ENOSPC, EEXIST, ENOMEM, ENODEV, ENOTSUP, ENOBUFS, ENOENT, EAGAIN, EALREADY, EFAULT, EPROTO, ENOEXEC};
 use std::{ffi::CString, os::raw};
-use dpdk_ffi;
+use dpdk_sys;
 use log;
 
 #[derive(Error, Debug)]
@@ -51,7 +51,7 @@ pub enum RingClientMapError {
 
 impl MemoryError {
 	pub fn new() -> Self {
-		let errno = unsafe { dpdk_ffi::_rte_errno() };
+		let errno = unsafe { dpdk_sys::_rte_errno() };
 		match errno {
 			1001 => MemoryError::SecondaryProcess,
 			1002 => MemoryError::NoConfig,
@@ -95,7 +95,7 @@ pub enum PortError {
 
 impl PortError {
 	pub fn new() -> Self {
-		let errno = unsafe { dpdk_ffi::_rte_errno() };
+		let errno = unsafe { dpdk_sys::_rte_errno() };
 		match errno {
 			ENODEV => PortError::NoDevice,
 			EINVAL => PortError::Invalid,
@@ -131,7 +131,7 @@ pub enum EALErrors {
 
 impl EALErrors {
 	pub fn new() -> Self {
-		let errno = unsafe { dpdk_ffi::_rte_errno() };
+		let errno = unsafe { dpdk_sys::_rte_errno() };
 		match errno {
 			EAGAIN => EALErrors::NoRsrc,
 			EALREADY => EALErrors::DuplicateCall,
@@ -159,7 +159,7 @@ pub fn eal_init(args: Vec<String>) -> Result<(), EALErrors> {
         .iter()
         .map(|s| s.as_ptr() as *mut raw::c_char)
 		.collect::<Vec<_>>();
-	match unsafe { dpdk_ffi::rte_eal_init(len, ptrs.as_mut_ptr()) } {
+	match unsafe { dpdk_sys::rte_eal_init(len, ptrs.as_mut_ptr()) } {
 		-1 => {
 			log::error!("failed to initialize eal");
 			Err(EALErrors::new())
@@ -170,7 +170,7 @@ pub fn eal_init(args: Vec<String>) -> Result<(), EALErrors> {
 
 /// Cleans up the Environment Abstraction Layer (EAL).
 pub fn eal_cleanup() -> Result<(), EALErrors> {
-    match unsafe { dpdk_ffi::rte_eal_cleanup() } {
+    match unsafe { dpdk_sys::rte_eal_cleanup() } {
 		0 => Ok(()),
 		_ => Err(EALErrors::Fault),
 	}

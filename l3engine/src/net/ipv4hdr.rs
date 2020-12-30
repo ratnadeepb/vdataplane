@@ -5,14 +5,14 @@
 
 use crate::apis::Mbuf;
 use smoltcp::wire::Ipv4Address;
-use dpdk_ffi;
+use dpdk_sys;
 
-pub struct Ipv4Hdr(dpdk_ffi::rte_ipv4_hdr);
+pub struct Ipv4Hdr(dpdk_sys::rte_ipv4_hdr);
 
 impl Ipv4Hdr {
 	/// Get IPv4 header from mbuf
 	pub fn from_mbuf(buf: Mbuf) -> Self {
-		Self(unsafe {*(dpdk_ffi::_pkt_ipv4_hdr(buf.get_ptr()) as *mut dpdk_ffi::rte_ipv4_hdr)})
+		Self(unsafe {*(dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr()) as *mut dpdk_sys::rte_ipv4_hdr)})
 	}
 
 	fn convert(&self, ip: u32) -> [u8; 4] {

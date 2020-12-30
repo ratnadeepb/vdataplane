@@ -1,5 +1,5 @@
 [package]
-name = "dpdk-ffi"
+name = "dpdk-sys"
 version = "0.1.0"
 authors = ["Ratnadeep Bhattacharya <bhattacharya.ratnadeep@gmail.com>"]
 edition = "2018"
@@ -11,7 +11,7 @@ description = """DPDK FFI bindings for native libraries."""
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "dpdk_ffi"
+name = "dpdk_sys"
 doctest = false
 
 [build-dependencies]

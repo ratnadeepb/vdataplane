@@ -1,5 +1,5 @@
 [workspace]
 members = [
-	"dpdk-ffi",
+	"dpdk-sys",
 	"l3engine",
 ]

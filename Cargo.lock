@@ -161,7 +161,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dpdk-ffi"
+name = "dpdk-sys"
 version = "0.1.0"
 dependencies = [
  "bindgen",
@@ -216,7 +216,7 @@ dependencies = [
  "anyhow",
  "chashmap",
  "crossbeam-queue",
- "dpdk-ffi",
+ "dpdk-sys",
  "libc",
  "log",
  "signal-hook",

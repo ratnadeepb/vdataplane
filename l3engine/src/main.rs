@@ -9,12 +9,12 @@ pub mod net;
 use apis::{Channel, Mbuf, Mempool, Port, eal_init};
 use state::Storage;
 use log;
-use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec, os::raw, ffi::CString};
+use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec};
 use crossbeam_queue::ArrayQueue;
 
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
-const G_MEMPOOL_CAPACITY: usize = 512;
-const G_CACHE_SIZE: usize = 32;
+// const G_MEMPOOL_CAPACITY: usize = 512;
+// const G_CACHE_SIZE: usize = 32;
 
 const TX_QUEUE_CACHE_SZ: usize = 512;
 const RX_BURST_MAX: usize = 32;
@@ -36,7 +36,7 @@ fn handle_signal() {
 	unimplemented!()
 }
 
-fn process_incoming_pkts(pkts: &Vec<*mut dpdk_ffi::rte_mbuf>) {
+fn process_incoming_pkts(pkts: &Vec<*mut dpdk_sys::rte_mbuf>) {
 	unimplemented!()
 }
 
@@ -61,7 +61,7 @@ fn rx_thread_main(receiver: Receiver<i8>, ports: Vec<Port>, rxq_id: u16) {
 	while keep_running {
 		for i in 0..ports.len() {
 			let mut ptrs = Vec::with_capacity(RX_BURST_MAX);
-			let rx_count = unsafe { dpdk_ffi::_rte_eth_rx_burst(ports[i].id, rxq_id, ptrs.as_mut_ptr(), RX_BURST_MAX as u16) };
+			let rx_count = unsafe { dpdk_sys::_rte_eth_rx_burst(ports[i].id, rxq_id, ptrs.as_mut_ptr(), RX_BURST_MAX as u16) };
 			if rx_count > 0 {
 				if let Some(ch) = PROC_CHANNEL.try_get() {
 					match ch.send_to_processor(ptrs) {
@@ -101,7 +101,7 @@ fn tx_thread_main(receiver: Receiver<i8>, ports: Vec<Port>, txq_id: u16) {
 		}
 		if ptrs.len() > 0 {
 			// REVIEW: As of now sending out of the first port always
-			let tx_count = unsafe { dpdk_ffi::_rte_eth_tx_burst(ports[0].id, txq_id, ptrs.as_mut_ptr(), TX_BURST_MAX as u16) };
+			let tx_count = unsafe { dpdk_sys::_rte_eth_tx_burst(ports[0].id, txq_id, ptrs.as_mut_ptr(), TX_BURST_MAX as u16) };
 			if tx_count == 0 {
 				log::info!("no packets sent out");
 			}
@@ -120,11 +120,11 @@ fn main() {
 
 	// NOTE: once again hardcoded
 	// let cores = [0..=3].iter().collect::<Vec<_>>();
-	// let num_cores = unsafe { dpdk_ffi::rte_lcore_count() } as u16;
-	// let cur_core = unsafe { dpdk_ffi::_rte_lcore_id() };
+	// let num_cores = unsafe { dpdk_sys::rte_lcore_count() } as u16;
+	// let cur_core = unsafe { dpdk_sys::_rte_lcore_id() };
 	// let rx_cores = NUM_RX_THREADS;
 	// let tx_cores = num_cores - rx_cores;
-	let socket_id = unsafe { dpdk_ffi::rte_socket_id() } as i32;
+	let socket_id = unsafe { dpdk_sys::rte_socket_id() } as i32;
 
 	log::info!("setup mempool");
 	let mempool;
@@ -134,10 +134,14 @@ fn main() {
 		Err(e) => panic!("Failed to initialize mempool: {}", e),
 	}
 	MEMPOOL.set(mempool);
+	#[cfg(feature = "debug")]
+	println!("mempool set"); // debug
 
 	log::info!("setup ports");
 	let eth_devs = vec!["0000:07:00.0", "0000:07:00.1"];
 	for id in 0..=1 {
 		Port::new(eth_devs[id], id as u16).unwrap().configure().unwrap();
 	}
+	#[cfg(feature = "debug")]
+	println!("ports set"); // debug
 }

@@ -20,7 +20,7 @@ pub enum RingType {
 pub struct Ring {
 	client_id: u16,
 	rtype: RingType,
-	raw: NonNull<dpdk_ffi::rte_ring>,
+	raw: NonNull<dpdk_sys::rte_ring>,
 }
 
 impl Ring {
@@ -28,7 +28,7 @@ impl Ring {
 	const RING_CAPACITY: usize = 512;
 
 	/// Return a Ring created from a pointer if the pointer is not null
-	pub fn from_ptr(client_id: u16, rtype: RingType, r: *mut dpdk_ffi::rte_ring) -> Result<Self, MemoryError> {
+	pub fn from_ptr(client_id: u16, rtype: RingType, r: *mut dpdk_sys::rte_ring) -> Result<Self, MemoryError> {
 		if let Some(raw) = NonNull::new(r) {
 			Ok(Self {
 				client_id,
@@ -55,7 +55,7 @@ impl Ring {
 			Ok(cstr) => nm = cstr,
 			Err(_) => return Err(MemoryError::BadVal),
 		};
-		match NonNull::new(unsafe {dpdk_ffi::rte_ring_create(nm.as_ptr(), Self::RING_CAPACITY as raw::c_uint, socket_id, Self::NO_FLAGS as raw::c_uint)}) {
+		match NonNull::new(unsafe {dpdk_sys::rte_ring_create(nm.as_ptr(), Self::RING_CAPACITY as raw::c_uint, socket_id, Self::NO_FLAGS as raw::c_uint)}) {
 			Some(raw) => Ok(Self {
 				client_id,
 				rtype,
@@ -79,7 +79,7 @@ impl Ring {
 
 	/// Enqueue a single packet onto the ring
 	pub fn enqueue(&self, pkt: Mbuf) -> Result<(), MemoryError> {
-		match unsafe { dpdk_ffi::_rte_ring_enqueue(self.get_ptr(), pkt.into_ptr() as *mut raw::c_void) } {
+		match unsafe { dpdk_sys::_rte_ring_enqueue(self.get_ptr(), pkt.into_ptr() as *mut raw::c_void) } {
 			0 => Ok(()),
 			_ => Err(MemoryError::new()),
 		}
@@ -88,24 +88,24 @@ impl Ring {
 	/// Dequeue a single packet from the ring
 	pub fn dequeue(&self, pkt: &mut Mbuf) -> Result<(), MemoryError> {
 		match unsafe {
-			dpdk_ffi::_rte_ring_dequeue(self.get_ptr(), &mut (pkt.get_ptr() as *mut _ as *mut raw::c_void)) } {
+			dpdk_sys::_rte_ring_dequeue(self.get_ptr(), &mut (pkt.get_ptr() as *mut _ as *mut raw::c_void)) } {
 			0 => Ok(()),
 			_ => Err(MemoryError::new()),
 		}
 	}
 
 	/// Enqueue a single packet onto the ring
-	pub fn enqueue_bulk(&self, pkts: Vec<*mut dpdk_ffi::rte_mbuf>) -> Result<(), MemoryError> {
-		match unsafe { dpdk_ffi::_rte_ring_enqueue_bulk(self.get_ptr(), pkts.as_ptr() as *mut *mut raw::c_void, pkts.len() as u32, ptr::null::<u32>() as *mut u32) } {
+	pub fn enqueue_bulk(&self, pkts: Vec<*mut dpdk_sys::rte_mbuf>) -> Result<(), MemoryError> {
+		match unsafe { dpdk_sys::_rte_ring_enqueue_bulk(self.get_ptr(), pkts.as_ptr() as *mut *mut raw::c_void, pkts.len() as u32, ptr::null::<u32>() as *mut u32) } {
 			0 => Ok(()),
 			_ => Err(MemoryError::new()),
 		}
 	}
 
 	/// Dequeue a single packet from the ring
-	pub fn dequeue_bulk(&self, pkts: &mut Vec<*mut dpdk_ffi::rte_mbuf>) -> Result<(), MemoryError> {
+	pub fn dequeue_bulk(&self, pkts: &mut Vec<*mut dpdk_sys::rte_mbuf>) -> Result<(), MemoryError> {
 		match unsafe {
-			dpdk_ffi::_rte_ring_dequeue_bulk(self.get_ptr(), pkts.as_ptr() as *mut *mut raw::c_void, pkts.len() as u32, ptr::null::<u32>() as *mut u32) } {
+			dpdk_sys::_rte_ring_dequeue_bulk(self.get_ptr(), pkts.as_ptr() as *mut *mut raw::c_void, pkts.len() as u32, ptr::null::<u32>() as *mut u32) } {
 			0 => Ok(()),
 			_ => Err(MemoryError::new()),
 		}
@@ -114,19 +114,19 @@ impl Ring {
 	/// Return mutable reference to the C struct for FFI calls
 	/// Does not consume the buffer
 	#[inline]
-	pub fn get_ptr(&self) -> *mut dpdk_ffi::rte_ring {
+	pub fn get_ptr(&self) -> *mut dpdk_sys::rte_ring {
 		self.raw.as_ptr()
 	}
 
 	/// Returns the raw struct needed for FFI calls.
 	#[inline]
-	pub fn raw(&self) -> &dpdk_ffi::rte_ring {
+	pub fn raw(&self) -> &dpdk_sys::rte_ring {
 		unsafe { self.raw.as_ref() }
 	}
 
 	/// Returns the raw struct needed for FFI calls.
 	#[inline]
-	pub fn raw_mut(&mut self) -> &mut dpdk_ffi::rte_ring {
+	pub fn raw_mut(&mut self) -> &mut dpdk_sys::rte_ring {
 		unsafe { self.raw.as_mut() }
 	}
 }
@@ -134,7 +134,7 @@ impl Ring {
 impl Drop for Ring {
 	fn drop(&mut self) {
 		unsafe {
-			dpdk_ffi::rte_ring_free(self.raw_mut());
+			dpdk_sys::rte_ring_free(self.raw_mut());
 		}
 	}
 }
@@ -152,7 +152,7 @@ unsafe impl Sync for Channel {}
 
 impl Channel {
 	pub fn new(client_id: u16) -> Result<Self, MemoryError> {
-		let socket_id = unsafe { dpdk_ffi::rte_socket_id() };
+		let socket_id = unsafe { dpdk_sys::rte_socket_id() };
 
 		let rx_q = Ring::new(client_id, RingType::RX, socket_id as i32)?;
 		let tx_q = Ring::new(client_id, RingType::TX, socket_id as i32)?;
@@ -184,12 +184,12 @@ impl Channel {
 	}
 
 	/// Send bulk to processor core
-	pub fn send_to_processor(&self, pkts: Vec<*mut dpdk_ffi::rte_mbuf>) -> Result<(), MemoryError> {
+	pub fn send_to_processor(&self, pkts: Vec<*mut dpdk_sys::rte_mbuf>) -> Result<(), MemoryError> {
 		self.tx_q.enqueue_bulk(pkts)
 	}
 
 	/// Receive bulk from processor core
-	pub fn recv_from_processor(&self, pkts: &mut Vec<*mut dpdk_ffi::rte_mbuf>) -> Result<(), MemoryError> {
+	pub fn recv_from_processor(&self, pkts: &mut Vec<*mut dpdk_sys::rte_mbuf>) -> Result<(), MemoryError> {
 		self.tx_q.dequeue_bulk(pkts)
 	}
 }

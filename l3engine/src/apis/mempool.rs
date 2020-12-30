@@ -7,13 +7,13 @@ use std::{ptr::{self, NonNull}, os::raw, ffi, fmt, mem};
 use super::{MemoryError};
 
 pub struct Mempool {
-	raw: NonNull<dpdk_ffi::rte_mempool>,
+	raw: NonNull<dpdk_sys::rte_mempool>,
 }
 
 impl Mempool {
 	const RX_MBUF_DATA_SIZE: u32 = 2048;
 	const RTE_PKTMBUF_HEADROOM: u32 = 128;
-	const MBUF_OVERHEAD: u32 = mem::size_of::<dpdk_ffi::rte_mbuf>() as u32 + Self::RTE_PKTMBUF_HEADROOM;
+	const MBUF_OVERHEAD: u32 = mem::size_of::<dpdk_sys::rte_mbuf>() as u32 + Self::RTE_PKTMBUF_HEADROOM;
 	const NUM_MBUFS: u32 = 32767; // 2^15 - 1
 	const MBUF_SIZE: u32 = Self::RX_MBUF_DATA_SIZE + Self::MBUF_OVERHEAD;
 	const MBUF_CACHE_SIZE: u32 = 512;
@@ -26,25 +26,25 @@ impl Mempool {
 		// socket_id: raw::c_int
 	) -> Result<Self, MemoryError> {
 		let n = ffi::CString::new(name).expect("Invalud name");
-		// let raw = unsafe {dpdk_ffi::rte_pktmbuf_pool_create(
+		// let raw = unsafe {dpdk_sys::rte_pktmbuf_pool_create(
 		// 		n.as_ptr(),
 		// 		capacity as raw::c_uint,
 		// 		cache_size as raw::c_uint,
 		// 		0,
-		// 		dpdk_ffi::RTE_MBUF_DEFAULT_BUF_SIZE as u16,
+		// 		dpdk_sys::RTE_MBUF_DEFAULT_BUF_SIZE as u16,
 		// 		socket_id,
 		// 	)};
-		let raw = unsafe { dpdk_ffi::rte_mempool_create(
+		let raw = unsafe { dpdk_sys::rte_mempool_create(
 			n.as_ptr(),
 			Self::NUM_MBUFS,
 			Self::MBUF_SIZE,
 			Self::MBUF_CACHE_SIZE,
-			mem::size_of::<dpdk_ffi::rte_pktmbuf_pool_private>() as u32,
-			Some(dpdk_ffi::rte_pktmbuf_pool_init),
+			mem::size_of::<dpdk_sys::rte_pktmbuf_pool_private>() as u32,
+			Some(dpdk_sys::rte_pktmbuf_pool_init),
 			ptr::null::<ffi::c_void>() as *mut _,
-			Some(dpdk_ffi::rte_pktmbuf_init),
+			Some(dpdk_sys::rte_pktmbuf_init),
 			ptr::null::<ffi::c_void>() as *mut _,
-			dpdk_ffi::rte_socket_id() as i32,
+			dpdk_sys::rte_socket_id() as i32,
 			Self::NO_FLAGS,
 		) };
 		let mempool = NonNull::new(raw);
@@ -62,20 +62,20 @@ impl Mempool {
 
 	/// Returns the raw struct pointer
 	#[inline]
-	pub fn raw(&self) -> &dpdk_ffi::rte_mempool {
+	pub fn raw(&self) -> &dpdk_sys::rte_mempool {
 		unsafe { self.raw.as_ref() }
 	}
 
 	/// Returns a mutable raw struct pointer
 	#[inline]
-	pub fn raw_mut(&mut self) -> &mut dpdk_ffi::rte_mempool {
+	pub fn raw_mut(&mut self) -> &mut dpdk_sys::rte_mempool {
 		unsafe { self.raw.as_mut() }
 	}
 
 	/// Return mutable reference to the C struct for FFI calls
 	/// Does not consume the buffer
 	#[inline]
-	pub fn get_ptr(&self) -> *mut dpdk_ffi::rte_mempool {
+	pub fn get_ptr(&self) -> *mut dpdk_sys::rte_mempool {
 		self.raw.as_ptr()
 	}
 
@@ -104,7 +104,7 @@ impl fmt::Debug for Mempool {
 impl Drop for Mempool {
 	fn drop(&mut self) {
 		unsafe {
-			dpdk_ffi::rte_mempool_free(self.raw_mut());
+			dpdk_sys::rte_mempool_free(self.raw_mut());
 		}
 	}
 }

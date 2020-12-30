@@ -204,7 +204,7 @@ fn bind(path: &Path) {
 #[cfg(not(feature = "rustdoc"))]
 fn main() {
 	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
-	// println!("cargo:rustc-link-search=/usr/local/lib/x86_64-linux-gnu/");
+	println!("cargo:rustc-link-search=/usr/local/lib/x86_64-linux-gnu/");
 
 	bind(&out_path);
 

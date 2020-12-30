@@ -50,7 +50,7 @@ impl SizeOf for ::std::net::Ipv6Addr {
 }
 
 pub struct Mbuf {
-	raw: NonNull<dpdk_ffi::rte_mbuf>,
+	raw: NonNull<dpdk_sys::rte_mbuf>,
 }
 
 unsafe impl Send for Mbuf {}
@@ -63,7 +63,7 @@ impl Mbuf {
 			None => return Err(MemoryError::BadVal),
 		};
 
-		let r = unsafe { dpdk_ffi::_rte_pktmbuf_alloc(mempool) };
+		let r = unsafe { dpdk_sys::_rte_pktmbuf_alloc(mempool) };
 		match NonNull::new(r) {
 			Some(raw) => Ok(Self { raw }),
 			None => Err(MemoryError::NoBuf),
@@ -81,7 +81,7 @@ impl Mbuf {
 
 	/// Creates a new `Mbuf` from a raw pointer
 	#[inline]
-	pub unsafe fn from_ptr(ptr: *mut dpdk_ffi::rte_mbuf) -> Self {
+	pub unsafe fn from_ptr(ptr: *mut dpdk_sys::rte_mbuf) -> Self {
 		Mbuf {
 			raw: NonNull::new_unchecked(ptr),
 		}
@@ -89,20 +89,20 @@ impl Mbuf {
 
 	/// Returns the raw struct needed for FFI calls
 	#[inline]
-	pub fn raw(&self) -> &dpdk_ffi::rte_mbuf {
+	pub fn raw(&self) -> &dpdk_sys::rte_mbuf {
 		unsafe { self.raw.as_ref() }
 	}
 
 	/// Returns the raw struct needed for FFI calls
 	#[inline]
-	pub fn raw_mut(&mut self) -> &mut dpdk_ffi::rte_mbuf {
+	pub fn raw_mut(&mut self) -> &mut dpdk_sys::rte_mbuf {
 		unsafe { self.raw.as_mut() }
 	}
 
 	/// Return mutable reference to the C struct for FFI calls
 	/// Does not consume the buffer
 	#[inline]
-	pub fn get_ptr(&self) -> *mut dpdk_ffi::rte_mbuf {
+	pub fn get_ptr(&self) -> *mut dpdk_sys::rte_mbuf {
 		self.raw.as_ptr()
 	}
 
@@ -111,7 +111,7 @@ impl Mbuf {
 	/// The `Mbuf` is consumed. It is the caller's the responsibility to
 	/// free the raw pointer after use. Otherwise the buffer is leaked.
 	#[inline]
-	pub fn into_ptr(self) -> *mut dpdk_ffi::rte_mbuf {
+	pub fn into_ptr(self) -> *mut dpdk_sys::rte_mbuf {
 		let ptr = self.raw.as_ptr();
 		mem::forget(self);
 		ptr
@@ -288,8 +288,8 @@ impl Mbuf {
 		};
 
 		let mbufs = unsafe {
-			// dpdk_ffi::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
-			let rb = dpdk_ffi::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
+			// dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
+			let rb = dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
 			match rb {
 				0 => {
 					ptrs.set_len(len);
@@ -311,7 +311,7 @@ impl Mbuf {
 	}
 
 	/// Frees the `rte_mbuf` in bulk.
-	pub fn mbuf_free_bulk(mbufs: Vec<*mut dpdk_ffi::rte_mbuf>) {
+	pub fn mbuf_free_bulk(mbufs: Vec<*mut dpdk_sys::rte_mbuf>) {
 		if mbufs.is_empty() {
 			return;
 		}
@@ -325,7 +325,7 @@ impl Mbuf {
 			} else {
 				unsafe {
 					let len = to_free.len();
-					dpdk_ffi::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
+					dpdk_sys::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
 					to_free.set_len(0);
 				}
 
@@ -335,7 +335,7 @@ impl Mbuf {
 
 		unsafe {
 			let len = to_free.len();
-			dpdk_ffi::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
+			dpdk_sys::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
 			to_free.set_len(0);
 		}
 	}
