@@ -15,3 +15,4 @@ Design heavily influenced by Capsule module and openNetVM.
   1. Some underlying structures like `rte_mempool` and `rte_ring` are thread safe
   2. Others like `rte_mbuf` will typically not be accessed from multiple threads
 - `Ring` and `Mbuf` have been marked as `Send` while `Mempool` has been marked as both `Sync` and `Send`. This has been done to enable passing/sharing related pointers between threads. There probably is no adverse side effect of this but **this has not been tested.**
+- Supported for `DPDK 19.11`. Certain libraries have changed in `DPDK 20` (as listed in `build.rs`)
