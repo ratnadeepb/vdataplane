@@ -6,10 +6,10 @@
 pub mod apis;
 pub mod net;
 
-use apis::{Channel, Mbuf, Mempool, Port, eal_init};
+use apis::{Channel, Mbuf, Mempool, Memzone, Port, eal_init};
 use state::Storage;
 use log;
-use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec};
+use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec, mem};
 use crossbeam_queue::ArrayQueue;
 
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
@@ -114,9 +114,11 @@ fn main() {
 	log::info!("Initializing DPDK env ...");
 	// NOTE: hardcoded for now
 	// later get a python script scan the system and populate a config file
-	// let args = vec![String::from("-l 0-3"), String::from("-n 4"), String::from("--proc-type=primary"), String::from("--allow-option 0000:07:00.0"), String::from("--allow-option 0000:07:00.1")];
 	let args = vec![String::from("-l 0-3"), String::from("-n 4"), String::from("--proc-type=primary")];
 	eal_init(args).unwrap();
+
+	#[cfg(feature = "debug")]
+	println!("environment initialised"); // debug
 
 	// NOTE: once again hardcoded
 	// let cores = [0..=3].iter().collect::<Vec<_>>();
@@ -124,7 +126,7 @@ fn main() {
 	// let cur_core = unsafe { dpdk_sys::_rte_lcore_id() };
 	// let rx_cores = NUM_RX_THREADS;
 	// let tx_cores = num_cores - rx_cores;
-	let socket_id = unsafe { dpdk_sys::rte_socket_id() } as i32;
+	// let socket_id = unsafe { dpdk_sys::rte_socket_id() } as i32;
 
 	log::info!("setup mempool");
 	let mempool;
@@ -134,14 +136,24 @@ fn main() {
 		Err(e) => panic!("Failed to initialize mempool: {}", e),
 	}
 	MEMPOOL.set(mempool);
+	
 	#[cfg(feature = "debug")]
-	println!("mempool set"); // debug
+	println!("mempool set");
 
 	log::info!("setup ports");
 	let eth_devs = vec!["0000:07:00.0", "0000:07:00.1"];
 	for id in 0..=1 {
 		Port::new(eth_devs[id], id as u16).unwrap().configure().unwrap();
 	}
+	
 	#[cfg(feature = "debug")]
 	println!("ports set"); // debug
+
+	let memzone = Memzone::new("TEST_MEMZONE", mem::size_of::<dpdk_sys::rte_mbuf>() * 10).unwrap();
+
+	#[cfg(feature = "debug")]
+	{
+		println!("test memzone set"); // debug
+		println!("Test memzone addr: {}", memzone.virt_addr());
+	}
 }
