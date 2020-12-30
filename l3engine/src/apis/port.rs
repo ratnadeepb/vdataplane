@@ -3,7 +3,6 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{ffi::CString, os::raw::c_char};
 use super::PortError;
 use crate::{NUM_RX_THREADS, NUM_TX_THREADS};
 

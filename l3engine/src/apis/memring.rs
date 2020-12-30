@@ -3,11 +3,11 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{ptr::NonNull, os::raw, ffi::CString, marker::{Sync, Send}, ptr};
+use std::{ptr::NonNull, os::raw, marker::{Sync, Send}, ptr};
 use anyhow::Result;
 use chashmap::CHashMap;
 
-use super::{MemoryError, Mbuf, RingClientMapError};
+use super::{MemoryError, Mbuf, RingClientMapError, WrappedCString};
 
 /// The RingType is whether message is being sent from engine to container or from contianer to engine
 pub enum RingType {
@@ -50,11 +50,7 @@ impl Ring {
 			RingType::RX => r = "RX",
 			RingType::TX => r = "TX",
 		};
-		let nm: CString;
-		match CString::new(format!("{}-{}", r, client_id)) {
-			Ok(cstr) => nm = cstr,
-			Err(_) => return Err(MemoryError::BadVal),
-		};
+		let nm = WrappedCString::to_cstring(format!("{}-{}", r, client_id))?;
 		match NonNull::new(unsafe {dpdk_sys::rte_ring_create(nm.as_ptr(), Self::RING_CAPACITY as raw::c_uint, socket_id, Self::NO_FLAGS as raw::c_uint)}) {
 			Some(raw) => Ok(Self {
 				client_id,

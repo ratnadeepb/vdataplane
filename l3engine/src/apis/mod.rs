@@ -7,17 +7,46 @@ mod mbuf;
 mod mempool;
 mod memring;
 mod port;
+mod memzone;
 
 pub use mbuf::*;
 pub use mempool::*;
 pub use memring::*;
 pub use port::*;
+pub use memzone::*;
 
 use thiserror::Error;
 use libc::{EINVAL, ENOSPC, EEXIST, ENOMEM, ENODEV, ENOTSUP, ENOBUFS, ENOENT, EAGAIN, EALREADY, EFAULT, EPROTO, ENOEXEC};
-use std::{ffi::CString, os::raw};
+use std::{ffi::{CString, NulError}, os::raw};
 use dpdk_sys;
 use log;
+
+pub(crate) trait WrappedCString {
+	fn to_cstring(self) -> Result<CString, NulError>;
+}
+
+impl WrappedCString for &str {
+	#[inline]
+	fn to_cstring(self) -> Result<CString, NulError> {
+		CString::new(self)
+	}
+}
+
+impl WrappedCString for String {
+	#[inline]
+	fn to_cstring(self) -> Result<CString, NulError> {
+		CString::new(self)
+	}
+}
+
+// NOTE: An absolutely horrible thing to to do
+// converting a string conversion error to a memory error
+impl From<NulError> for MemoryError {
+	fn from(error: NulError) -> Self {
+		MemoryError::BadVal
+	}
+}
+
 
 #[derive(Error, Debug)]
 pub enum MemoryError {

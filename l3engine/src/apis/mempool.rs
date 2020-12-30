@@ -3,8 +3,8 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{ptr::{self, NonNull}, os::raw, ffi, fmt, mem};
-use super::{MemoryError};
+use std::{ptr::{self, NonNull}, ffi, fmt, mem};
+use super::{MemoryError, WrappedCString};
 
 pub struct Mempool {
 	raw: NonNull<dpdk_sys::rte_mempool>,
@@ -25,7 +25,7 @@ impl Mempool {
 		// cache_size: usize,
 		// socket_id: raw::c_int
 	) -> Result<Self, MemoryError> {
-		let n = ffi::CString::new(name).expect("Invalud name");
+		let n = WrappedCString::to_cstring(name)?;
 		// let raw = unsafe {dpdk_sys::rte_pktmbuf_pool_create(
 		// 		n.as_ptr(),
 		// 		capacity as raw::c_uint,
