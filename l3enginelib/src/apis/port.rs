@@ -101,7 +101,7 @@ impl<'a> Port<'a> {
 	}
 
 	/// Receive packets from the port
-	pub fn receive(&self, mempool: Mempool) -> Vec<Mbuf> {
+	pub fn receive(&self, mempool: Mempool, queue_id: u16) -> Vec<Mbuf> {
 		// REVIEW: horrible constructions all over
 		let mut pkts: Vec<Mbuf> = Vec::with_capacity(Self::TX_BURST_MAX as usize);
 		for _ in 0..Self::TX_BURST_MAX {
@@ -116,21 +116,17 @@ impl<'a> Port<'a> {
 			ptrs.push(pkt.get_ptr());
 		}
 
-		// first cpu
-		let queue_id = 0;
 		unsafe { dpdk_sys::_rte_eth_rx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::TX_BURST_MAX) };
 		pkts
 	}
 
 	/// Send packets out of the port
-	pub fn send(&self, pkts: &mut Vec<Mbuf>) {
+	pub fn send(&self, pkts: &mut Vec<Mbuf>, queue_id: u16) {
 		let mut ptrs = Vec::with_capacity(pkts.len());
 		for pkt in pkts {
 			ptrs.push(pkt.get_ptr());
 		}
 
-		// first cpu
-		let queue_id = 0;
 		unsafe { dpdk_sys::_rte_eth_tx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::RX_BURST_MAX) };
 	}
 }
