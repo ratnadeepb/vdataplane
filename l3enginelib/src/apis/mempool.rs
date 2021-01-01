@@ -84,6 +84,15 @@ impl Mempool {
 	pub fn name(&self) -> String {
 		unsafe { ffi::CString::from_raw(&self.raw().name.clone() as *const i8 as *mut i8).to_str().unwrap_or("Name undefined").to_owned() }
 	}
+
+	pub fn lookup(name: &str) -> Result<Self, MemoryError> {
+		let nm = WrappedCString::to_cstring(name)?;
+		let r = unsafe { dpdk_sys::rte_mempool_lookup(nm.as_ptr()) };
+		match NonNull::new(r) {
+			Some(raw) => Ok(Self { raw }),
+			None => Err(MemoryError::NoEntries),
+		}
+	}
 }
 
 unsafe impl Sync for Mempool {}

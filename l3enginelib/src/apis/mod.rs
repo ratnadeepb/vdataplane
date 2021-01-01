@@ -42,11 +42,10 @@ impl WrappedCString for String {
 // NOTE: An absolutely horrible thing to to do
 // converting a string conversion error to a memory error
 impl From<NulError> for MemoryError {
-	fn from(error: NulError) -> Self {
+	fn from(_: NulError) -> Self {
 		MemoryError::BadVal
 	}
 }
-
 
 #[derive(Error, Debug)]
 pub enum MemoryError {
@@ -76,6 +75,12 @@ pub enum RingClientMapError {
 	MemoryError(MemoryError),
 	#[error("Client {} not found", _0)]
 	ClientNotFound(u16)
+}
+
+impl From<MemoryError> for RingClientMapError {
+	fn from(err: MemoryError) -> Self {
+		RingClientMapError::MemoryError(err)
+	}
 }
 
 impl MemoryError {

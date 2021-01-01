@@ -1,9 +1,8 @@
 [package]
-name = "l3engine"
+name = "speed-tester"
 version = "0.1.0"
 authors = ["Ratnadeep Bhattacharya <bhattacharya.ratnadeep@gmail.com>"]
 edition = "2018"
-license = "Mozilla-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -11,13 +10,7 @@ license = "Mozilla-2.0"
 debug = []
 
 [dependencies]
+l3enginelib = { version = "0.1.0", path = "../l3enginelib" }
 dpdk-sys = { version = "0.1.0", path = "../dpdk-sys" }
-anyhow = "1.0.36"
-thiserror = "1.0.22"
-libc = "0.2.81"
-state = "0.4.2"
-chashmap = "2.2.2"
-smoltcp = "0.6.0"
-signal-hook = "0.3.1"
 log = "0.4.11"
 crossbeam-queue = "0.3.1"

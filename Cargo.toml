@@ -1,5 +1,7 @@
 [workspace]
 members = [
 	"dpdk-sys",
-	"l3engine",
+	"l3enginelib",
+	"l3enginepacketiser",
+	"speed-tester",
 ]

@@ -3,9 +3,9 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{ptr::NonNull, mem, error::Error, ptr, slice, os::raw, marker::Send};
-use super::{MemoryError, BufError};
-use crate::MEMPOOL;
+use std::{ptr::NonNull, mem, error::Error, ptr, slice, os::raw, marker::Send, fmt};
+
+use super::{BufError, MemoryError, Mempool};
 
 /// A trait for returning the size type in bytes
 ///
@@ -50,18 +50,18 @@ impl SizeOf for ::std::net::Ipv6Addr {
 }
 
 pub struct Mbuf {
-	raw: NonNull<dpdk_sys::rte_mbuf>,
+	pub raw: NonNull<dpdk_sys::rte_mbuf>,
 }
 
 unsafe impl Send for Mbuf {}
 
 impl Mbuf {
-	pub fn new() -> Result<Self, MemoryError> {
-		let mempool;
-		match MEMPOOL.try_get() {
-			Some(mp) => mempool = mp.get_ptr(),
-			None => return Err(MemoryError::BadVal),
-		};
+	pub fn new(mp: &Mempool) -> Result<Self, MemoryError> {
+		let mempool = mp.get_ptr();
+		// match mp.try_get() {
+		// 	Some(mp) => mempool = mp.get_ptr(),
+		// 	None => return Err(MemoryError::BadVal),
+		// };
 
 		let r = unsafe { dpdk_sys::_rte_pktmbuf_alloc(mempool) };
 		match NonNull::new(r) {
@@ -72,8 +72,8 @@ impl Mbuf {
 
 	/// Create a new message buffer from a byte array
 	#[inline]
-	pub fn from_bytes(data: &[u8]) -> Result<Self, Box<dyn Error>> {
-		let mut mbuf = Mbuf::new()?;
+	pub fn from_bytes(data: &[u8], mp: &Mempool) -> Result<Self, Box<dyn Error>> {
+		let mut mbuf = Mbuf::new(mp)?;
 		mbuf.extend(0, data.len())?;
 		mbuf.write_data_slice(0, data)?;
 		Ok(mbuf)
@@ -279,13 +279,13 @@ impl Mbuf {
 	}
 
 	/// Allocates a Vec of `Mbuf`s of `len` size.
-	pub fn alloc_bulk(len: usize) -> Result<Vec<Mbuf>, MemoryError> {
+	pub fn alloc_bulk(len: usize, mp: &Mempool) -> Result<Vec<Mbuf>, MemoryError> {
 		let mut ptrs = Vec::with_capacity(len);
-		let mempool;
-		match MEMPOOL.try_get() {
-			Some(mp) => mempool = mp.get_ptr(),
-			None => return Err(MemoryError::BadVal),
-		};
+		let mempool = mp.get_ptr();
+		// match MEMPOOL.try_get() {
+		// 	Some(mp) => mempool = mp.get_ptr(),
+		// 	None => return Err(MemoryError::BadVal),
+		// };
 
 		let mbufs = unsafe {
 			// dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
@@ -338,5 +338,23 @@ impl Mbuf {
 			dpdk_sys::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
 			to_free.set_len(0);
 		}
+	}
+}
+
+impl fmt::Debug for Mbuf {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let raw = self.raw();
+        f.debug_struct(&format!("mbuf@{:p}", raw.buf_addr))
+            .field("buf_len", &raw.buf_len)
+            .field("pkt_len", &raw.pkt_len)
+            .field("data_len", &raw.data_len)
+            .field("data_off", &raw.data_off)
+            .finish()
+    }
+}
+
+impl Drop for Mbuf {
+	fn drop(&mut self) {
+		unsafe { dpdk_sys::_rte_pktmbuf_free(self.raw_mut()) };
 	}
 }

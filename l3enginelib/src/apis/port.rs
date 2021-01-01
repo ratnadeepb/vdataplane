@@ -3,18 +3,23 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use super::PortError;
-use crate::{NUM_RX_THREADS, NUM_TX_THREADS};
+use std::ptr::NonNull;
+
+use crossbeam_queue::ArrayQueue;
+use super::{Mbuf, Mempool, PortError};
 
 pub struct Port<'a> {
-	pub(crate) id: u16,
-	pub(crate) device: &'a str,
-	pub(crate) dev_info: dpdk_sys::rte_eth_dev_info,
+	pub id: u16,
+	pub device: &'a str,
+	pub dev_info: dpdk_sys::rte_eth_dev_info,
 }
 
 impl<'a> Port<'a> {
-	const PORTMASK: u8 = 0x02;
+	const PORTMASK: u8 = 0x03;
 	const DEFAULT_RSS_HF: u64 = (dpdk_sys::ETH_RSS_IP | dpdk_sys::ETH_RSS_TCP |dpdk_sys::ETH_RSS_UDP | dpdk_sys::ETH_RSS_SCTP | dpdk_sys::ETH_RSS_L2_PAYLOAD) as u64;
+	
+	const RX_BURST_MAX: u16 = 32;
+	const TX_BURST_MAX: u16 = 32;
 
 	const RSS_SYMMETRIC_KEY: [u8; 40] = [
 		0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a,
@@ -56,7 +61,7 @@ impl<'a> Port<'a> {
 		// }
 	}
 
-	pub fn configure(&mut self) -> Result<(), PortError> {
+	pub fn configure(&mut self, num_rx_threads: u16, num_tx_threads: u16) -> Result<(), PortError> {
 		let mut conf = dpdk_sys::rte_eth_conf::default();
 
 		conf.rxmode.mq_mode = dpdk_sys::rte_eth_rx_mq_mode::ETH_MQ_RX_RSS;
@@ -77,7 +82,7 @@ impl<'a> Port<'a> {
 		}
 
 		// configure the device
-		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, NUM_RX_THREADS, NUM_TX_THREADS, &conf)} {
+		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, num_rx_threads, num_tx_threads, &conf)} {
 			0 => {},
 			_ => return Err(PortError::new()),
 		};
@@ -93,5 +98,39 @@ impl<'a> Port<'a> {
 	/// Get user device in PCI notation
 	pub fn get_name(&self) -> &str {
 		self.device
+	}
+
+	/// Receive packets from the port
+	pub fn receive(&self, mempool: Mempool) -> Vec<Mbuf> {
+		// REVIEW: horrible constructions all over
+		let mut pkts: Vec<Mbuf> = Vec::with_capacity(Self::TX_BURST_MAX as usize);
+		for _ in 0..Self::TX_BURST_MAX {
+			match Mbuf::new(&mempool) {
+				Ok(buf) => pkts.push(buf),
+				Err(_) => log::error!("port receive: failed to create mbuf"),
+			}
+		}
+
+		let mut ptrs: Vec<*mut dpdk_sys::rte_mbuf> = Vec::with_capacity(pkts.len());
+		for pkt in &pkts {
+			ptrs.push(pkt.get_ptr());
+		}
+
+		// first cpu
+		let queue_id = 0;
+		unsafe { dpdk_sys::_rte_eth_rx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::TX_BURST_MAX) };
+		pkts
+	}
+
+	/// Send packets out of the port
+	pub fn send(&self, pkts: &mut Vec<Mbuf>) {
+		let mut ptrs = Vec::with_capacity(pkts.len());
+		for pkt in pkts {
+			ptrs.push(pkt.get_ptr());
+		}
+
+		// first cpu
+		let queue_id = 0;
+		unsafe { dpdk_sys::_rte_eth_tx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::RX_BURST_MAX) };
 	}
 }

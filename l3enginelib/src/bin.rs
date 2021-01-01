@@ -6,12 +6,14 @@
 pub mod apis;
 pub mod net;
 
-use apis::{Channel, Mbuf, Mempool, Memzone, Port, eal_init};
+use l3enginelib::apis::{Mbuf, Mempool, Memzone, Port, RingClientMap, eal_cleanup, eal_init};
 use state::Storage;
 use log;
-use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec, mem};
-use crossbeam_queue::ArrayQueue;
+use std::{sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, vec, mem, ptr::NonNull};
 
+// These three values need to be the same here and in the `l3packetiser` crate
+const PACKETISER_ID: u16 = 1;
+const PACKETISER_BURST: usize = 512;
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
 // const G_MEMPOOL_CAPACITY: usize = 512;
 // const G_CACHE_SIZE: usize = 32;
@@ -26,17 +28,14 @@ const TX_BURST_MAX: usize = 32;
 pub static MEMPOOL: Storage<Mempool> = Storage::new();
 
 /// Send/Receive packets to/fro the processing core
-pub(crate) static PROC_CHANNEL: Storage<Channel> = Storage::new();
+pub(crate) static PROC_CHANNEL: Storage<RingClientMap> = Storage::new();
 
 
 pub const NUM_RX_THREADS: u16 = 1;
 pub const NUM_TX_THREADS: u16 = 1;
+const PROCESSOR_THREAD: u16 = 1; // ID of the process that will process the packets
 
 fn handle_signal() {
-	unimplemented!()
-}
-
-fn process_incoming_pkts(pkts: &Vec<*mut dpdk_sys::rte_mbuf>) {
 	unimplemented!()
 }
 
@@ -64,9 +63,12 @@ fn rx_thread_main(receiver: Receiver<i8>, ports: Vec<Port>, rxq_id: u16) {
 			let rx_count = unsafe { dpdk_sys::_rte_eth_rx_burst(ports[i].id, rxq_id, ptrs.as_mut_ptr(), RX_BURST_MAX as u16) };
 			if rx_count > 0 {
 				if let Some(ch) = PROC_CHANNEL.try_get() {
-					match ch.send_to_processor(ptrs) {
-						Ok(_) => {},
-						Err(e) => log::error!("failed to send packets to processing core: {}", e),
+					for ptr in ptrs.drain(..) {
+						let pkt = Mbuf { raw: unsafe { NonNull::new_unchecked(ptr) }};
+						match ch.send(PROCESSOR_THREAD, pkt) {
+							Ok(_) => { },
+							Err(e) => log::error!("failed to send packets to processing core: {}", e),
+						}
 					}
 				}
 			}
@@ -92,14 +94,32 @@ fn tx_thread_main(receiver: Receiver<i8>, ports: Vec<Port>, txq_id: u16) {
 		}
 	}
 	while keep_running {
-		let mut ptrs = Vec::with_capacity(TX_BURST_MAX);
+		let mut pkts = Vec::with_capacity(TX_BURST_MAX);
+		let mempool = MEMPOOL.get(); // panics if MEMPOOL has not been set
 		if let Some(ch) = PROC_CHANNEL.try_get() {
-			match ch.recv_from_processor(&mut ptrs) {
-				Ok(_) => {},
-				Err(e) => log::error!("failed to send packets to processing core: {}", e),
+			for i in 0..TX_BURST_MAX {
+				match Mbuf::new(mempool) {
+					Ok(mb) => pkts.push(mb),
+					Err(e) => {
+						log::error!("unable to create mbuf: {}", e);
+						return;
+					}
+				}
+				match ch.receive(PROCESSOR_THREAD, &mut pkts[i]) {
+					Ok(_) => {},
+					Err(e) => {
+						log::error!("failed to receive packets from the processing core: {}", e);
+						pkts.pop(); // remove the last buffer from the vector
+						break; // no more packets to receive
+					}
+				}
 			}
 		}
-		if ptrs.len() > 0 {
+		if pkts.len() > 0 {
+			let mut ptrs = Vec::with_capacity(TX_BURST_MAX);
+			for pkt in pkts {
+				ptrs.push(pkt.into_ptr());
+			}
 			// REVIEW: As of now sending out of the first port always
 			let tx_count = unsafe { dpdk_sys::_rte_eth_tx_burst(ports[0].id, txq_id, ptrs.as_mut_ptr(), TX_BURST_MAX as u16) };
 			if tx_count == 0 {
@@ -114,7 +134,10 @@ fn main() {
 	log::info!("Initializing DPDK env ...");
 	// NOTE: hardcoded for now
 	// later get a python script scan the system and populate a config file
-	let args = vec![String::from("-l 0-3"), String::from("-n 4"), String::from("--proc-type=primary")];
+	let args = vec![String::from("-l 0-1"), String::from("-n 4"), String::from("--proc-type=primary"), String::from("--"), String::from("-p 3"), String::from("-n 2")];
+	println!("main process args: {:?}", &args); // debug
+	#[cfg(debug)]
+	println!("main process args: {:?}", &args);
 	eal_init(args).unwrap();
 
 	#[cfg(feature = "debug")]
@@ -130,7 +153,6 @@ fn main() {
 
 	log::info!("setup mempool");
 	let mempool;
-	// match Mempool::new(String::from(G_MEMPOOL_NAME), G_MEMPOOL_CAPACITY, G_CACHE_SIZE, socket_id) {
 	match Mempool::new(G_MEMPOOL_NAME) {
 		Ok(mp) => mempool = mp,
 		Err(e) => panic!("Failed to initialize mempool: {}", e),
@@ -141,9 +163,10 @@ fn main() {
 	println!("mempool set");
 
 	log::info!("setup ports");
-	let eth_devs = vec!["0000:07:00.0", "0000:07:00.1"];
+	// let eth_devs = vec!["0000:07:00.0", "0000:07:00.1"];
+	let eth_devs = vec!["port0", "port1"];
 	for id in 0..=1 {
-		Port::new(eth_devs[id], id as u16).unwrap().configure().unwrap();
+		Port::new(eth_devs[id], id as u16).unwrap().configure(NUM_RX_THREADS, NUM_TX_THREADS).unwrap();
 	}
 	
 	#[cfg(feature = "debug")]
@@ -156,4 +179,22 @@ fn main() {
 		println!("test memzone set"); // debug
 		println!("Test memzone addr: {}", memzone.virt_addr());
 	}
+
+	let ringmap = RingClientMap::new();
+	#[cfg(feature = "debug")]
+	println!("main process: created ringmap");
+	ringmap.add_client(PACKETISER_ID).unwrap(); // fatal error
+	#[cfg(debug)]
+	println!("main process: added packetiser to ringmap");
+
+	while true {
+
+	}
+
+	#[cfg(feature = "debug")]
+	println!("main process stopping");
+	eal_cleanup().unwrap();
+	log::info!("stopped main process");
+	#[cfg(feature = "debug")]
+	println!("main process stopped");
 }

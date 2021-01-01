@@ -3,6 +3,10 @@
  * Created by Ratnadeep Bhattacharya
  */
 
+use super::MacError;
+use std::result::Result;
+use dpdk_sys;
+
 pub struct MacAddr([u8; 6]);
 
 impl MacAddr {
@@ -15,4 +19,10 @@ impl MacAddr {
 	pub fn from_ether_addr(mac: dpdk_sys::rte_ether_addr) -> Self {
 		Self(mac.addr_bytes)
 	}
+
+	// pub fn print_mac_addrs() -> Result<(), MacError> {
+	// 	for port in 0..=1 {
+
+	// 	}
+	// }
 }

@@ -210,7 +210,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c1ad908cc71012b7bea4d0c53ba96a8cba9962f048fa68d143376143d863b7a"
 
 [[package]]
-name = "l3engine"
+name = "l3enginelib"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -223,6 +223,19 @@ dependencies = [
  "smoltcp",
  "state",
  "thiserror",
+]
+
+[[package]]
+name = "l3enginepacketiser"
+version = "0.1.0"
+dependencies = [
+ "chashmap",
+ "crossbeam-queue",
+ "dpdk-sys",
+ "l3enginelib",
+ "log",
+ "smoltcp",
+ "state",
 ]
 
 [[package]]
@@ -451,6 +464,16 @@ dependencies = [
  "libc",
  "log",
  "managed",
+]
+
+[[package]]
+name = "speed-tester"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-queue",
+ "dpdk-sys",
+ "l3enginelib",
+ "log",
 ]
 
 [[package]]
