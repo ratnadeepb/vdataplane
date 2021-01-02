@@ -27,7 +27,6 @@ impl<'a> Port<'a> {
 		0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a,
 	];
 
-	// pub fn new(device: String) -> Result<Self, PortError> {
 	pub fn new(device: &'a str, id: u16) -> Result<Self, PortError> {
 		let mut dev_info = dpdk_sys::rte_eth_dev_info::default();
 		match unsafe { dpdk_sys::rte_eth_dev_info_get(id, &mut dev_info) } {
