@@ -38,27 +38,6 @@ impl<'a> Port<'a> {
 				}),
 			_ => Err(PortError::new()),
 		}
-		// let mut id = 0u16;
-		// let cstr: CString;
-		// match CString::new(&device[..]) {
-		// 	Ok(cstring) => cstr = cstring,
-		// 	Err(_) => return Err(PortError::NoDevice),
-		// }
-		// match unsafe { dpdk_sys::rte_eth_dev_get_port_by_name(cstr.as_ptr() as *const c_char, &mut id) } {
-		// 	0 => {
-		// 		println!("got the port by name"); // debug
-		// 		let mut dev_info = dpdk_sys::rte_eth_dev_info::default();
-		// 		match unsafe { dpdk_sys::rte_eth_dev_info_get(id, &mut dev_info) } {
-		// 			0 => Ok(Self {
-		// 					id,
-		// 					device,
-		// 					dev_info,
-		// 				}),
-		// 			_ => Err(PortError::new()),
-		// 		}
-		// 	},
-		// 	_ => Err(PortError::new()),
-		// }
 	}
 
 	pub fn configure(&mut self, num_rx_threads: u16, num_tx_threads: u16) -> Result<(), PortError> {
