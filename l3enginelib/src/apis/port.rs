@@ -3,9 +3,9 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::ptr::NonNull;
+// DEVFLAGS: development flags - remove in production
+#![allow(dead_code)]
 
-use crossbeam_queue::ArrayQueue;
 use super::{Mbuf, Mempool, PortError};
 
 pub struct Port<'a> {
@@ -102,7 +102,7 @@ impl<'a> Port<'a> {
 
 	/// Receive packets from the port
 	pub fn receive(&self, mempool: Mempool, queue_id: u16) -> Vec<Mbuf> {
-		// REVIEW: horrible constructions all over
+		// OPTIMISE: horrible constructions all over
 		let mut pkts: Vec<Mbuf> = Vec::with_capacity(Self::TX_BURST_MAX as usize);
 		for _ in 0..Self::TX_BURST_MAX {
 			match Mbuf::new(&mempool) {

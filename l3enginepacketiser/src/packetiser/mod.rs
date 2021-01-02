@@ -3,15 +3,19 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-/* 
- * This is the first client we are building.
- * The design is that the main DPDK process only handles incoming and outgoing packets
- * Incoming packets are handed over to a secondary DPDK process
- * This module performs the basic processing and sends them over to the clients
- * It will also receive the modules from the clients and send them to main process
- *
- * This module will ultimately hold filters that can be enabled to apply certain policies
- */
+// DEVFLAGS: development flags - remove in production
+#![allow(dead_code)]
+
+/// 
+/// This is the first client we are building.
+/// The design is that the main DPDK process only handles incoming and outgoing packets
+/// Incoming packets are handed over to a secondary DPDK process
+/// This module performs the basic processing and sends them over to the clients
+/// It will also receive the modules from the clients and send them to main process
+///
+/// This module will ultimately hold filters that can be enabled to apply certain policies
+///
+
 
 use chashmap::CHashMap;
 use crossbeam_queue::ArrayQueue;
@@ -161,7 +165,7 @@ impl Packetiser {
 
 	/// Send a bulk of packets to the engine
 	pub(crate) fn send_to_engine_bulk(&self) -> Result<(), MemoryError> {
-		// REVIEW: this is a horrible construction
+		// OPTIMISE: this is a horrible construction
 		let mut pkts = Vec::with_capacity(BURST_MAX);
 		for pkt in self.o_bufqueue.pop() {
 			pkts.push(pkt);

@@ -3,6 +3,19 @@
  * Created by Ratnadeep Bhattacharya
  */
 
+// production flags
+// #![warn(
+//     missing_docs,
+//     rust_2018_idioms,
+//     missing_debug_implementations,
+//     broken_intra_doc_links
+// )]
+// #![allow(clippy::type_complexity)]
+
+// DEVFLAGS: development flags - remove in production
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 pub mod apis;
 pub mod net;
 
@@ -129,7 +142,9 @@ fn tx_thread_main(receiver: Receiver<i8>, ports: Vec<Port>, txq_id: u16) {
 	}
 }
 
-
+// DEVFLAGS: development flags - remove in production
+#[allow(unused_variables)]
+#[allow(while_true)]
 fn main() {
 	log::info!("Initializing DPDK env ...");
 	// NOTE: hardcoded for now

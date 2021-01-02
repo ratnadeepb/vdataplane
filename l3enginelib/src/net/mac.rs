@@ -3,6 +3,10 @@
  * Created by Ratnadeep Bhattacharya
  */
 
+// development flags - remove in production
+#![allow(dead_code)]
+#![allow(unused_imports)]
+
 use super::MacError;
 use std::result::Result;
 use dpdk_sys;
