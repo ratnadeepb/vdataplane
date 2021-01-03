@@ -6,6 +6,8 @@
 // DEVFLAGS: development flags - remove in production
 #![allow(dead_code)]
 
+use crate::net::MacAddr;
+
 use super::{Mbuf, Mempool, PortError};
 
 pub struct Port<'a> {
@@ -20,6 +22,9 @@ impl<'a> Port<'a> {
 	
 	const RX_BURST_MAX: u16 = 32;
 	const TX_BURST_MAX: u16 = 32;
+
+	const RTE_MP_RX_DESC_DEFAULT: u16 = 512;
+	const RTE_MP_TX_DESC_DEFAULT: u16 = 512;
 
 	const RSS_SYMMETRIC_KEY: [u8; 40] = [
 		0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a, 0x6d, 0x5a,
@@ -39,7 +44,7 @@ impl<'a> Port<'a> {
 		}
 	}
 
-	pub fn configure(&mut self, num_rx_threads: u16, num_tx_threads: u16) -> Result<(), PortError> {
+	pub fn configure(&mut self, num_cores: u16, mempool: &Mempool) -> Result<(), PortError> {
 		let mut conf = dpdk_sys::rte_eth_conf::default();
 
 		conf.rxmode.mq_mode = dpdk_sys::rte_eth_rx_mq_mode::ETH_MQ_RX_RSS;
@@ -60,10 +65,36 @@ impl<'a> Port<'a> {
 		}
 
 		// configure the device
-		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, num_rx_threads, num_tx_threads, &conf)} {
+		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, num_cores, num_cores, &conf)} {
 			0 => {},
 			_ => return Err(PortError::new()),
 		};
+
+		// queue set up
+		let rx_conf = &self.dev_info.default_rxconf;
+		let tx_conf = &self.dev_info.default_txconf;
+
+		for i in 0..num_cores {
+			unsafe {
+				match dpdk_sys::rte_eth_rx_queue_setup(self.id, i, Self::RTE_MP_RX_DESC_DEFAULT, dpdk_sys::rte_eth_dev_socket_id(self.id) as u32, rx_conf, mempool.get_ptr()) {
+					0 => {},
+					_ => {
+						let e = PortError::new();
+						log::error!("main: couldn't set up rx queue for port {}: {}", self.id, e);
+						return Err(e)
+					},
+				}
+
+				match dpdk_sys::rte_eth_tx_queue_setup(self.id, i, Self::RTE_MP_TX_DESC_DEFAULT, dpdk_sys::rte_eth_dev_socket_id(self.id) as u32, tx_conf) {
+					0 => {},
+					_ => {
+						let e = PortError::new();
+						log::error!("main: couldn't set up tx queue for port {}: {}", self.id, e);
+						return Err(e)
+					},
+				}
+			}
+		}
 
 		// sets the port's promiscuous mode
 		match unsafe { dpdk_sys::rte_eth_promiscuous_enable(self.id) } {
@@ -73,13 +104,34 @@ impl<'a> Port<'a> {
 		Ok(())
 	}
 
+	/// Start the port
+	pub fn start(&self) -> Result<(), PortError> {
+		unsafe { 
+			match dpdk_sys::rte_eth_dev_start(self.id) {
+				0 => Ok(()),
+				_ => Err(PortError::new())
+			}
+		}
+	}
+
 	/// Get user device in PCI notation
 	pub fn get_name(&self) -> &str {
 		self.device
 	}
 
+	/// Get mac address for port
+	pub fn mac_addr(&self) -> Result<MacAddr, PortError> {
+		unsafe {
+			let mac = dpdk_sys::rte_ether_addr::default();
+			match dpdk_sys::rte_eth_macaddr_get(self.id, &mac as *const _ as *mut _) {
+				0 => Ok(MacAddr::from_ether_addr(mac)),
+				_ => Err(PortError::new()),
+			}
+		}
+	}
+
 	/// Receive packets from the port
-	pub fn receive(&self, mempool: Mempool, queue_id: u16) -> Vec<Mbuf> {
+	pub fn receive(&self, mempool: &Mempool, queue_id: u16) -> Vec<Mbuf> {
 		// OPTIMISE: horrible constructions all over
 		let mut pkts: Vec<Mbuf> = Vec::with_capacity(Self::TX_BURST_MAX as usize);
 		for _ in 0..Self::TX_BURST_MAX {
@@ -99,12 +151,12 @@ impl<'a> Port<'a> {
 	}
 
 	/// Send packets out of the port
-	pub fn send(&self, pkts: &mut Vec<Mbuf>, queue_id: u16) {
+	pub fn send(&self, pkts: Vec<Mbuf>, queue_id: u16) -> usize {
 		let mut ptrs = Vec::with_capacity(pkts.len());
 		for pkt in pkts {
 			ptrs.push(pkt.get_ptr());
 		}
 
-		unsafe { dpdk_sys::_rte_eth_tx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::RX_BURST_MAX) };
+		unsafe { dpdk_sys::_rte_eth_tx_burst(self.id, queue_id, ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf, Self::RX_BURST_MAX) as usize }
 	}
 }
