@@ -103,6 +103,9 @@ int _rte_ring_dequeue(struct rte_ring *r, void **obj_p);
 unsigned int _rte_ring_enqueue_bulk(struct rte_ring *r, void *const *obj_table,
                                     unsigned int n, unsigned int *free_space);
 
+/* Parse IP to u32 */
+int _pkt_parse_ip(char *ip_str, uint32_t *dest);
+
 /* Get the Ethernet header from the packet */
 struct rte_ether_hdr *_pkt_ether_hdr(struct rte_mbuf *pkt);
 
@@ -115,8 +118,25 @@ struct rte_tcp_hdr *_pkt_tcp_hdr(struct rte_mbuf *pkt);
 /* Get the UDP header from the packet */
 struct rte_udp_hdr *_pkt_udp_hdr(struct rte_mbuf *pkt);
 
+/* Get the ARP header from the packet */
+struct rte_arp_hdr *_pkt_arp_hdr(struct rte_mbuf *pkt);
+
 /* flush a local memring cache */
 void _rte_mempool_cache_flush(struct rte_mempool_cache *cache,
                               struct rte_mempool *mp);
+
+/* Convert a 16-bit value from CPU order to big endian. */
+rte_be16_t _rte_cpu_to_be_16(uint16_t x);
+
+/* Convert a 32-bit value from big endian order to CPU. */
+uint32_t _rte_be_to_cpu_32(rte_be32_t x);
+
+/* Detect ARP Request header */
+int _pkt_detect_arp(struct rte_mbuf *buf, uint32_t local_ip);
+
+/* Create an ARP Response packet */
+struct rte_mbuf *_pkt_arp_response(struct rte_ether_addr *tha,
+                                   struct rte_ether_addr *frm, uint32_t tip,
+                                   uint32_t sip, struct rte_mempool *mp);
 
 void stop_and_close_ports();

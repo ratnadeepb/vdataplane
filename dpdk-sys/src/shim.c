@@ -169,29 +169,10 @@ _pkt_ipv4_hdr(struct rte_mbuf *pkt)
 #define IP_PROTOCOL_TCP 6
 #define IP_PROTOCOL_UDP 17
 
-struct rte_ipv4_hdr *
-_onvm_pkt_ipv4_hdr(struct rte_mbuf *pkt)
-{
-        struct rte_ipv4_hdr *ipv4 =
-            (struct rte_ipv4_hdr *)(rte_pktmbuf_mtod(pkt, uint8_t *) +
-                                    sizeof(struct rte_ether_hdr));
-
-        /* In an IP packet, the first 4 bits determine the version.
-         * The next 4 bits are called the Internet Header Length, or IHL.
-         * DPDK's ipv4_hdr struct combines both the version and the IHL into one
-         * uint8_t.
-         */
-        uint8_t version = (ipv4->version_ihl >> 4) & 0b1111;
-        if (unlikely(version != 4)) {
-                return NULL;
-        }
-        return ipv4;
-}
-
 struct rte_tcp_hdr *
 _pkt_tcp_hdr(struct rte_mbuf *pkt)
 {
-        struct rte_ipv4_hdr *ipv4 = _onvm_pkt_ipv4_hdr(pkt);
+        struct rte_ipv4_hdr *ipv4 = _pkt_ipv4_hdr(pkt);
 
         if (unlikely(ipv4 ==
                      NULL)) { // Since we aren't dealing with IPv6 packets for
@@ -212,7 +193,7 @@ _pkt_tcp_hdr(struct rte_mbuf *pkt)
 struct rte_udp_hdr *
 _pkt_udp_hdr(struct rte_mbuf *pkt)
 {
-        struct rte_ipv4_hdr *ipv4 = _onvm_pkt_ipv4_hdr(pkt);
+        struct rte_ipv4_hdr *ipv4 = _pkt_ipv4_hdr(pkt);
 
         if (unlikely(ipv4 ==
                      NULL)) { // Since we aren't dealing with IPv6 packets for
@@ -235,4 +216,111 @@ _rte_mempool_cache_flush(struct rte_mempool_cache *cache,
                          struct rte_mempool *mp)
 {
         rte_mempool_cache_flush(cache, mp);
+}
+
+struct rte_arp_hdr *
+_pkt_arp_hdr(struct rte_mbuf *pkt)
+{
+        return rte_pktmbuf_mtod_offset(pkt, struct rte_arp_hdr *,
+                                       sizeof(struct rte_ether_hdr));
+}
+
+rte_be16_t
+_rte_cpu_to_be_16(uint16_t x)
+{
+        return rte_cpu_to_be_16(x);
+}
+
+uint32_t
+_rte_be_to_cpu_32(rte_be32_t x)
+{
+        return rte_be_to_cpu_32(x);
+}
+
+int
+_pkt_parse_ip(char *ip_str, uint32_t *dest)
+{
+        int ret;
+        int ip[4];
+
+        if (ip_str == NULL || dest == NULL) {
+                return -1;
+        }
+
+        ret = sscanf(ip_str, "%u.%u.%u.%u", &ip[0], &ip[1], &ip[2], &ip[3]);
+        if (ret != 4) {
+                return -1;
+        }
+        *dest = RTE_IPV4(ip[0], ip[1], ip[2], ip[3]);
+        return 0;
+}
+
+int
+_pkt_detect_arp(struct rte_mbuf *pkt, uint32_t local_ip)
+{
+        struct rte_ether_hdr *ether_hdr = _pkt_ether_hdr(pkt);
+        struct rte_arp_hdr *arp_hdr;
+        // uint32_t local_ip;
+        // _pkt_parse_ip(ip_string, &local_ip);
+
+        if (rte_cpu_to_be_16(ether_hdr->ether_type) == RTE_ETHER_TYPE_ARP) {
+                arp_hdr = _pkt_arp_hdr(pkt);
+                if (rte_cpu_to_be_16(arp_hdr->arp_opcode) ==
+                    RTE_ARP_OP_REQUEST) {
+                        if (rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip) ==
+                            local_ip) {
+                                return 1;
+                        }
+                }
+        }
+        return 0;
+}
+
+struct rte_mbuf *
+_pkt_arp_response(struct rte_ether_addr *tha, struct rte_ether_addr *frm,
+                  uint32_t tip, uint32_t sip, struct rte_mempool *mp)
+{
+        struct rte_mbuf *out_pkt = NULL;
+        struct rte_ether_hdr *eth_hdr = NULL;
+        struct rte_arp_hdr *out_arp_hdr = NULL;
+
+        size_t pkt_size = 0;
+
+        if (tha == NULL) {
+                return NULL;
+        }
+
+        out_pkt = rte_pktmbuf_alloc(mp);
+        if (out_pkt == NULL) {
+                rte_free(out_pkt);
+                return NULL;
+        }
+
+        pkt_size = sizeof(struct rte_ether_hdr) + sizeof(struct rte_arp_hdr);
+        out_pkt->data_len = pkt_size;
+        out_pkt->pkt_len = pkt_size;
+
+        // SET ETHER HEADER INFO
+        eth_hdr = _pkt_ether_hdr(out_pkt);
+        rte_ether_addr_copy(frm, &eth_hdr->s_addr);
+        eth_hdr->ether_type = rte_cpu_to_be_16(RTE_ETHER_TYPE_ARP);
+        rte_ether_addr_copy(tha, &eth_hdr->d_addr);
+
+        // SET ARP HDR INFO
+        out_arp_hdr = rte_pktmbuf_mtod_offset(out_pkt, struct rte_arp_hdr *,
+                                              sizeof(struct rte_ether_hdr));
+
+        out_arp_hdr->arp_hardware = rte_cpu_to_be_16(RTE_ARP_HRD_ETHER);
+        out_arp_hdr->arp_protocol = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
+        out_arp_hdr->arp_hlen = 6;
+        out_arp_hdr->arp_plen = sizeof(uint32_t);
+        out_arp_hdr->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
+
+        rte_ether_addr_copy(frm, &out_arp_hdr->arp_data.arp_sha);
+        out_arp_hdr->arp_data.arp_sip = sip;
+
+        out_arp_hdr->arp_data.arp_tip = tip;
+        rte_ether_addr_copy(tha, &out_arp_hdr->arp_data.arp_tha);
+
+        return out_pkt;
 }
