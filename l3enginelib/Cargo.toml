@@ -16,7 +16,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "l3enginebin"
-path = "src/bin.rs"
+path = "src/main.rs"
 
 [dependencies]
 dpdk-sys = { version = "0.1.0", path = "../dpdk-sys" }
