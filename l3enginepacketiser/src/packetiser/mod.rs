@@ -273,7 +273,7 @@ impl Packetiser {
 }
 
 pub(crate) fn start() {
-	let args = vec![String::from("-l 2-3"), String::from("-n 4"), String::from("--proc-type=secondary"), String::from("--"), String::from("-n 0")];
+	let args = vec![String::from("-lcores=\"(2-3)@0\""), String::from("-n 4"), String::from("--proc-type=secondary"), String::from("--"), String::from("-n 0")];
 	#[cfg(feature = "debug")]
 	println!("packetiser args: {:?}", &args);
 	eal_init(args).unwrap();
