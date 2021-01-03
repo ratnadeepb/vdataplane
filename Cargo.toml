@@ -3,5 +3,4 @@ members = [
 	"dpdk-sys",
 	"l3enginelib",
 	"l3enginepacketiser",
-	"speed-tester",
 ]
