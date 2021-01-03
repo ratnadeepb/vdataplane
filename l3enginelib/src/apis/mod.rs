@@ -123,6 +123,8 @@ pub enum PortError {
 	Invalid,
 	#[error("function not supported on this device")]
 	NoSupport,
+	#[error("not enough memory")]
+	NoMem,
 	#[error("bad val")]
 	BadVal,
 }
@@ -134,6 +136,7 @@ impl PortError {
 			ENODEV => PortError::NoDevice,
 			EINVAL => PortError::Invalid,
 			ENOTSUP => PortError::NoSupport,
+			ENOMEM => PortError::NoMem,
 			_ => PortError::BadVal,
 		}
 	}
@@ -203,9 +206,12 @@ pub fn eal_init(args: Vec<String>) -> Result<(), EALErrors> {
 }
 
 /// Cleans up the Environment Abstraction Layer (EAL).
-pub fn eal_cleanup() -> Result<(), EALErrors> {
-    match unsafe { dpdk_sys::rte_eal_cleanup() } {
-		0 => Ok(()),
-		_ => Err(EALErrors::Fault),
+pub fn eal_cleanup(mempool: &Mempool) -> Result<(), EALErrors> {
+	unsafe {
+		dpdk_sys::rte_mempool_free(mempool.get_ptr());
+		match dpdk_sys::rte_eal_cleanup() {
+			0 => Ok(()),
+			_ => Err(EALErrors::Fault),
+		}
 	}
 }
