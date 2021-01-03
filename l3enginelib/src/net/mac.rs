@@ -8,8 +8,10 @@
 #![allow(unused_imports)]
 
 use super::MacError;
-use std::result::Result;
+use crate::apis::{Mbuf, Port};
+use std::{result::Result, fmt};
 use dpdk_sys;
+use smoltcp::wire::EthernetAddress;
 
 pub struct MacAddr([u8; 6]);
 
@@ -24,9 +26,13 @@ impl MacAddr {
 		Self(mac.addr_bytes)
 	}
 
-	// pub fn print_mac_addrs() -> Result<(), MacError> {
-	// 	for port in 0..=1 {
+	pub fn to_ethernetaddr(&self) -> EthernetAddress {
+		EthernetAddress::from_bytes(&self.0)
+	}
+}
 
-	// 	}
-	// }
+impl fmt::Debug for MacAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct(&format!("{}", self.to_ethernetaddr())).finish()
+    }
 }
