@@ -128,14 +128,30 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 
 	let rx_count = pkts.len();
 	// detect and send arp response
-	for pkt in &pkts {
+	let mp = MEMPOOL.get();
+	for pkt in &mut pkts {
+		#[cfg(feature = "debug")]
+		{
+			let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+			if !ether_hdr.is_null() {
+				// println!("packet: {}", unsafe { (*ip_hdr).next_proto_id });
+				// println!("packet ether type: {:?}", unsafe {
+				// 	(*ether_hdr).ether_type
+				// });
+			}
+		}
+
 		if let Some(ip) = server.detect_arp(pkt) {
 			println!("main: arp packet for ip: {:?}", ip);
-			let mp = MEMPOOL.get();
-			if let Some(out_pkt) = server.send_arp_reply(pkt, mp) {
-				let tx_count = ports[0].send(vec![out_pkt], queue_id);
+			if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
+				let tx_count = ports[0].send(vec![out_arp], queue_id);
 				println!("main: arp packet for ip: {:?}", ip);
 			}
+		}
+
+		if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
+			let tx_count = ports[0].send(vec![out_icmp], queue_id);
+			println!("main: icmp packet");
 		}
 	}
 
@@ -144,7 +160,10 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 	// let tx_count = tx_packetiser(ports, queue_id);
 	#[cfg(feature = "debug")]
 	if rx_count > 0 || tx_count > 0 {
-		// println!("Received {} packets and sent out {} packets", rx_count, tx_count);
+		// println!(
+		// 	"Received {} packets and sent out {} packets",
+		// 	rx_count, tx_count
+		// );
 	}
 	(rx_count, tx_count)
 }

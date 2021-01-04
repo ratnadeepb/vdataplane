@@ -6,16 +6,18 @@
 use std::{collections::HashMap, fmt};
 
 use crate::apis::{Mbuf, Mempool};
-use smoltcp::wire::{Ipv4Address, EthernetAddress};
+use smoltcp::wire::{EthernetAddress, Ipv4Address};
 
 pub struct Server {
-	sockets: HashMap<Ipv4Address, Vec<EthernetAddress>>, 
+	sockets: HashMap<Ipv4Address, Vec<EthernetAddress>>,
 }
 
 impl Server {
 	/// Create a new server
 	pub fn new() -> Self {
-		Self { sockets: HashMap::new() }
+		Self {
+			sockets: HashMap::new(),
+		}
 	}
 
 	/// Add a new (ip, mac) socket to the server
@@ -44,7 +46,9 @@ impl Server {
 			arr[i] = bytes[i] as i8;
 		}
 
-		unsafe { dpdk_sys::_pkt_parse_ip(arr.as_mut_ptr(), &mut *ip_addr); }
+		unsafe {
+			dpdk_sys::_pkt_parse_ip(arr.as_mut_ptr(), &mut *ip_addr);
+		}
 		*ip_addr
 	}
 
@@ -65,26 +69,80 @@ impl Server {
 	/// Generate an ARP Request if an incoming packet is an ARP Request meant for us
 	pub fn send_arp_reply(&self, buf: &Mbuf, mp: &Mempool) -> Option<Mbuf> {
 		match self.detect_arp(buf) {
-			Some(_ip) => {
-				unsafe {
-					let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
-					let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
-					let tip = (*ipv4_hdr).dst_addr;
-					let sip = (*ipv4_hdr).src_addr;
-					let tha = &(*ether_hdr).d_addr as *const _ as *mut _;
-					let frm = &(*ether_hdr).s_addr as *const _ as *mut _;
-					Some(Mbuf::from_ptr(
-						dpdk_sys::_pkt_arp_response(tha, frm, tip, sip, mp.get_ptr())
-					))
-				}
+			Some(_ip) => unsafe {
+				let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
+				let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
+				let tip = (*ipv4_hdr).dst_addr;
+				let sip = (*ipv4_hdr).src_addr;
+				let tha = &(*ether_hdr).d_addr as *const _ as *mut _;
+				let frm = &(*ether_hdr).s_addr as *const _ as *mut _;
+				Some(Mbuf::from_ptr(dpdk_sys::_pkt_arp_response(
+					tha,
+					frm,
+					tip,
+					sip,
+					mp.get_ptr(),
+				)))
 			},
 			None => None,
 		}
+	}
+
+	/// Provide an ICMP Reply
+	pub fn icmp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
+		unsafe {
+			let icmp_hdr = dpdk_sys::_pkt_icmp_hdr(buf.get_ptr());
+			if icmp_hdr.is_null() {
+				return None;
+			}
+			#[cfg(feature = "debug")]
+			println!("ICMP packet detected");
+			let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
+			let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
+
+			if (*icmp_hdr).icmp_type == dpdk_sys::RTE_IP_ICMP_ECHO_REQUEST as u8
+				&& (*icmp_hdr).icmp_code == 0
+			{
+				drop(buf);
+				match Mbuf::new(mp) {
+					Ok(icmp_pkt) => {
+						let out_ether_hdr = dpdk_sys::_pkt_ether_hdr(icmp_pkt.get_ptr());
+						let out_ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(icmp_pkt.get_ptr());
+						let mut out_icmp_hdr = dpdk_sys::_pkt_icmp_hdr(icmp_pkt.get_ptr());
+
+						// invert the src and dst addresses
+						dpdk_sys::_rte_ether_addr_copy(
+							&mut (*ether_hdr).s_addr,
+							&mut (*out_ether_hdr).d_addr,
+						);
+						dpdk_sys::_rte_ether_addr_copy(
+							&mut (*ether_hdr).d_addr,
+							&mut (*out_ether_hdr).s_addr,
+						);
+
+						(*ipv4_hdr).src_addr = (*out_ipv4_hdr).dst_addr;
+						(*ipv4_hdr).dst_addr = (*out_ipv4_hdr).src_addr;
+
+						(*icmp_hdr).icmp_type = dpdk_sys::RTE_IP_ICMP_ECHO_REPLY as u8;
+
+						(*out_icmp_hdr).icmp_cksum =
+							dpdk_sys::_pkt_icmp_checksum((*icmp_hdr).icmp_cksum);
+
+						return Some(icmp_pkt);
+					}
+					Err(e) => {
+						log::error!("main: failed to create packet: {}", e);
+						return None;
+					}
+				}
+			}
+		}
+		None
 	}
 }
 
 impl fmt::Debug for Server {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		f.debug_struct(&format!("{:?}", self.sockets)).finish()
-    }
+	}
 }
