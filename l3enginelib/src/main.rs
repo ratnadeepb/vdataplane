@@ -17,16 +17,23 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-pub mod apis;
-pub mod net;
-
-use l3enginelib::{apis::{Mbuf, Mempool, Memzone, Port, RingClientMap, eal_cleanup, eal_init}, net::Server};
+use l3enginelib::{
+	apis::{eal_cleanup, eal_init, Mbuf, Mempool, Memzone, Port, RingClientMap},
+	net::MacAddr,
+	server::Server,
+};
+use log;
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
-use log;
+use std::{
+	mem,
+	ptr::NonNull,
+	sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
+	thread::sleep,
+	time::Duration,
+	vec,
+};
 use zmq::Context;
-use std::{mem, ptr::NonNull, sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError}, thread::sleep, time::Duration, vec};
-use net::MacAddr;
 
 // These three values need to be the same here and in the `l3packetiser` crate
 const PACKETISER_ID: u16 = 1;
@@ -47,7 +54,6 @@ pub static MEMPOOL: Storage<Mempool> = Storage::new();
 /// Send/Receive packets to/fro the processing core
 pub(crate) static PROC_CHANNEL: Storage<RingClientMap> = Storage::new();
 
-
 pub const NUM_RX_THREADS: usize = 1;
 pub const NUM_TX_THREADS: usize = 1;
 const PROCESSOR_THREAD: u16 = 1; // ID of the process that will process the packets
@@ -67,7 +73,7 @@ fn rx_packetiser(ports: &Vec<Port>, rxq_id: u16) -> usize {
 			if let Some(ch) = PROC_CHANNEL.try_get() {
 				for pkt in rx_pkts {
 					match ch.send(PROCESSOR_THREAD, pkt) {
-						Ok(_) => {},
+						Ok(_) => {}
 						Err(e) => log::error!("failed to send packets to processing core: {}", e),
 					}
 				}
@@ -91,7 +97,7 @@ fn tx_packetiser(ports: &Vec<Port>, txq_id: u16) -> usize {
 				}
 			}
 			match ch.receive(PROCESSOR_THREAD, &mut pkts[i]) {
-				Ok(_) => {},
+				Ok(_) => {}
 				Err(e) => {
 					log::error!("failed to receive packets from the processing core: {}", e);
 					pkts.pop(); // remove the last buffer from the vector
@@ -121,12 +127,10 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 	}
 
 	let rx_count = pkts.len();
-	
 	// detect and send arp response
 	for pkt in &pkts {
 		if let Some(ip) = server.detect_arp(pkt) {
 			println!("main: arp packet for ip: {:?}", ip);
-
 			let mp = MEMPOOL.get();
 			if let Some(out_pkt) = server.send_arp_reply(pkt, mp) {
 				let tx_count = ports[0].send(vec![out_pkt], queue_id);
@@ -156,7 +160,14 @@ fn main() {
 	log::info!("Initializing DPDK env ...");
 	// NOTE: hardcoded for now
 	// later get a python script scan the system and populate a config file
-	let args = vec![String::from("-lcores=\"(0-1)@0\""), String::from("-n 4"), String::from("--proc-type=primary"), String::from("--"), String::from("-p 3"), String::from("-n 2")];
+	let args = vec![
+		String::from("-lcores=\"(0-1)@0\""),
+		String::from("-n 4"),
+		String::from("--proc-type=primary"),
+		String::from("--"),
+		String::from("-p 3"),
+		String::from("-n 2"),
+	];
 	println!("main process args: {:?}", &args); // debug
 	#[cfg(debug)]
 	println!("main process args: {:?}", &args);
@@ -180,7 +191,6 @@ fn main() {
 		Err(e) => panic!("Failed to initialize mempool: {}", e),
 	}
 	MEMPOOL.set(mempool);
-	
 	#[cfg(feature = "debug")]
 	println!("mempool set");
 
@@ -196,17 +206,23 @@ fn main() {
 			ports.push(p);
 		}
 	} // lock on MEMPOOL released
-	
-	#[cfg(feature = "debug")] {
+
+	#[cfg(feature = "debug")]
+	{
 		println!("ports set");
 		print_mac_addrs(&ports);
 	}
 
 	let mut server = Server::new();
-	let ip_addr = Ipv4Address::new(172, 168, 10, 10);
-	let macs = [ports[0].mac_addr().unwrap().to_ethernetaddr(),
-							ports[1].mac_addr().unwrap().to_ethernetaddr()].to_vec();
-	server.add_macs(ip_addr, macs);
+	let ip_addr1 = Ipv4Address::new(10, 10, 2, 1);
+	let ip_addr2 = Ipv4Address::new(10, 10, 1, 2);
+	let mac1 = ports[0].mac_addr().unwrap().to_ethernetaddr();
+	let mac2 = ports[1].mac_addr().unwrap().to_ethernetaddr();
+	server.add(ip_addr1, mac1);
+	server.add(ip_addr2, mac2);
+	// let macs = [ports[0].mac_addr().unwrap().to_ethernetaddr(),
+	// ports[1].mac_addr().unwrap().to_ethernetaddr()].to_vec();
+	// server.add_macs(ip_addr, macs);
 	#[cfg(feature = "debug")]
 	println!("Server IP and Macs: {:?}", server);
 

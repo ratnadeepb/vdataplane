@@ -5,11 +5,11 @@
 
 mod ipv4hdr;
 mod mac;
-mod arp;
+// mod arp;
 
 pub use ipv4hdr::*;
 pub use mac::*;
-pub use arp::*;
+// pub use arp::*;
 
 use thiserror::Error;
 use libc::ENODEV;
