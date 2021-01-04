@@ -37,15 +37,15 @@ impl Server {
 
 	/// Convert IP address to u32
 	pub fn ipaddr_to_u32(ip: &Ipv4Address) -> u32 {
-		let mut ip_addr = 0u32;
+		let mut ip_addr = Box::new(0u32); // ensure memory allocation is in heap
 		let mut arr: [i8; 4] = [0; 4];
 		let bytes = ip.as_bytes();
 		for i in 0..4 {
 			arr[i] = bytes[i] as i8;
 		}
 
-		unsafe { dpdk_sys::_pkt_parse_ip(arr.as_mut_ptr(), &mut ip_addr); }
-		ip_addr	
+		unsafe { dpdk_sys::_pkt_parse_ip(arr.as_mut_ptr(), &mut *ip_addr); }
+		*ip_addr
 	}
 
 	/// Detect if a packet is an ARP Request

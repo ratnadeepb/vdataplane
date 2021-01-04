@@ -2,6 +2,10 @@
 
 Design heavily influenced by Capsule module and openNetVM.
 
+## Known Issue
+
+- In some cases, `#include <immintrin.h>` had to be added to `/usr/local/include/rte_memcpy.h` (cloudlab)
+
 ## Possible Issues
 
 - `Ring`, `Mbuf` and `Mempool` define a `get_ptr` function which works as such:
