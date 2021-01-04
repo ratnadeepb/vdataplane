@@ -166,6 +166,7 @@ _pkt_ipv4_hdr(struct rte_mbuf *pkt)
         return ipv4;
 }
 
+#define IP_PROTOCOL_ICMP 1
 #define IP_PROTOCOL_TCP 6
 #define IP_PROTOCOL_UDP 17
 
@@ -209,6 +210,43 @@ _pkt_udp_hdr(struct rte_mbuf *pkt)
                             sizeof(struct rte_ether_hdr) +
                             sizeof(struct rte_ipv4_hdr);
         return (struct rte_udp_hdr *)pkt_data;
+}
+
+struct rte_icmp_hdr *
+_pkt_icmp_hdr(struct rte_mbuf *pkt)
+{
+        struct rte_ipv4_hdr *ipv4 = _pkt_ipv4_hdr(pkt);
+
+        if (unlikely(ipv4 ==
+                     NULL)) { // Since we aren't dealing with IPv6 packets for
+                              // now, we can ignore anything that isn't IPv4
+                return NULL;
+        }
+
+        if (ipv4->next_proto_id != IP_PROTOCOL_ICMP) {
+                return NULL;
+        }
+
+        uint8_t *pkt_data = rte_pktmbuf_mtod(pkt, uint8_t *) +
+                            sizeof(struct rte_ether_hdr) +
+                            sizeof(struct rte_ipv4_hdr);
+
+        return (struct rte_icmp_hdr *)pkt_data;
+}
+
+uint16_t _pkt_icmp_checksum(uint16_t cksum)
+{
+        cksum = ~cksum & 0xffff;
+        cksum += ~htons(RTE_IP_ICMP_ECHO_REQUEST << 8) & 0xffff;
+        cksum += htons(RTE_IP_ICMP_ECHO_REPLY << 8);
+        cksum = (cksum & 0xffff) + (cksum >> 16);
+        cksum = (cksum & 0xffff) + (cksum >> 16);
+        return ~cksum;
+}
+
+void _rte_ether_addr_copy(const struct rte_ether_addr *__restrict ea_from, struct rte_ether_addr *__restrict ea_to)
+{
+        rte_ether_addr_copy(ea_from, ea_to);
 }
 
 void

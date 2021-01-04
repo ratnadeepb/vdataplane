@@ -118,8 +118,17 @@ struct rte_tcp_hdr *_pkt_tcp_hdr(struct rte_mbuf *pkt);
 /* Get the UDP header from the packet */
 struct rte_udp_hdr *_pkt_udp_hdr(struct rte_mbuf *pkt);
 
+/* Get the ICMP header from the packet */
+struct rte_icmp_hdr *_pkt_icmp_hdr(struct rte_mbuf *pkt);
+
+/* Get ICMP checksum */
+uint16_t _pkt_icmp_checksum(uint16_t checksum);
+
 /* Get the ARP header from the packet */
 struct rte_arp_hdr *_pkt_arp_hdr(struct rte_mbuf *pkt);
+
+/* Copy Ether Address from source dest */
+void _rte_ether_addr_copy(const struct rte_ether_addr *__restrict ea_from, struct rte_ether_addr *__restrict ea_to);
 
 /* flush a local memring cache */
 void _rte_mempool_cache_flush(struct rte_mempool_cache *cache,
