@@ -26,11 +26,9 @@ use log;
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
-	thread,
 	mem,
 	ptr::NonNull,
 	sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
-	thread::sleep,
 	time::Duration,
 	vec,
 };
@@ -130,47 +128,46 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 	let rx_count = pkts.len();
 	// detect and send arp response
 	let mp = MEMPOOL.get();
-	#[cfg(feature = "debug")]
-	{
-		println!("recevd: {} pkts", &pkts.len());
-		for pkt in &mut pkts {
-			{
-				let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-				if !ether_hdr.is_null() {
-					// println!("packet: {}", unsafe { (*ip_hdr).next_proto_id });
-					let ether_type = unsafe { (*ether_hdr).ether_type };
-					if ether_type != 0 {
-						println!("packet ether type: {:x}", unsafe {
-							(*ether_hdr).ether_type
-						});
-						if let Some(ip) = server.detect_arp(pkt) {
-							println!("main: arp packet for ip: {:?}", ip);
-							if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
-								let tx_count = ports[0].send(vec![out_arp], queue_id);
-								println!("main: arp packet for ip: {:?}", ip);
-							}
-						}
 
-						if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
-							let tx_count = ports[0].send(vec![out_icmp], queue_id);
-							println!("main: icmp packet");
-						}
-					} else {
-						drop(pkt);
+	let mut len = 0;
+	for pkt in &mut pkts {
+		{
+			let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+			let ip_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(pkt.get_ptr()) };
+			if !ether_hdr.is_null() {
+				let ether_type = unsafe { (*ether_hdr).ether_type };
+				if ether_type != 0 {
+					len += 1;
+					println!("packet ether type: {:x}", unsafe {
+						(*ether_hdr).ether_type
+					});
+					if !ip_hdr.is_null() {
+						println!("packet ip proto type: {:x}", unsafe {
+							(*ip_hdr).next_proto_id
+						});
 					}
+					if let Some(ip) = server.detect_arp(pkt) {
+						println!("main: arp packet for ip: {:?}", ip);
+						if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
+							let tx_count = ports[0].send(vec![out_arp], queue_id);
+							println!("main: arp packet for ip: {:?}", ip);
+						}
+					}
+
+					if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
+						let tx_count = ports[0].send(vec![out_icmp], queue_id);
+						println!("main: icmp packet");
+					}
+				} else {
+					drop(pkt);
 				}
 			}
 		}
 	}
 
-	#[cfg(feature = "debug")]
-	println!("About to send");
-
 	let mut tx_count = 0;
-	if pkts.len() > 0 {
-		// tx_count = ports[0].send(pkts, queue_id);
-		#[cfg(feature = "debug")]
-		println!("Sent successfully!");
+	if len > 0 {
+		tx_count = ports[0].send(pkts, queue_id ^ 1);
 	}
 	// let rx_count = rx_packetiser(ports, queue_id);
 	// let tx_count = tx_packetiser(ports, queue_id);
