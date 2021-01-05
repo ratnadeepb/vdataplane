@@ -26,6 +26,7 @@ use log;
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
+	thread,
 	mem,
 	ptr::NonNull,
 	sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
@@ -67,7 +68,7 @@ fn rx_packetiser(ports: &Vec<Port>, rxq_id: u16) -> usize {
 	let mempool = MEMPOOL.get();
 	let mut count = 0;
 	for i in 0..ports.len() {
-		let rx_pkts = ports[i].receive(mempool, rxq_id);
+		let rx_pkts = ports[i].receive(rxq_id);
 		if rx_pkts.len() > 0 {
 			count += rx_pkts.len();
 			if let Some(ch) = PROC_CHANNEL.try_get() {
@@ -122,49 +123,57 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 	let mempool = MEMPOOL.get();
 	let mut pkts: Vec<Mbuf> = Vec::new();
 	for i in 0..ports.len() {
-		let mut rx_pkts = ports[i].receive(mempool, queue_id);
+		let mut rx_pkts = ports[i].receive(queue_id);
 		pkts.extend(rx_pkts.drain(..));
 	}
 
 	let rx_count = pkts.len();
 	// detect and send arp response
 	let mp = MEMPOOL.get();
-	for pkt in &mut pkts {
-		#[cfg(feature = "debug")]
-		{
-			let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-			if !ether_hdr.is_null() {
-				// println!("packet: {}", unsafe { (*ip_hdr).next_proto_id });
-				// println!("packet ether type: {:?}", unsafe {
-				// 	(*ether_hdr).ether_type
-				// });
-			}
-		}
+	#[cfg(feature = "debug")]
+	{
+		println!("recevd: {} pkts", &pkts.len());
+		for pkt in &mut pkts {
+			{
+				let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+				if !ether_hdr.is_null() {
+					// println!("packet: {}", unsafe { (*ip_hdr).next_proto_id });
+					let ether_type = unsafe { (*ether_hdr).ether_type };
+					if ether_type != 0 {
+						println!("packet ether type: {:x}", unsafe {
+							(*ether_hdr).ether_type
+						});
+						if let Some(ip) = server.detect_arp(pkt) {
+							println!("main: arp packet for ip: {:?}", ip);
+							if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
+								let tx_count = ports[0].send(vec![out_arp], queue_id);
+								println!("main: arp packet for ip: {:?}", ip);
+							}
+						}
 
-		if let Some(ip) = server.detect_arp(pkt) {
-			println!("main: arp packet for ip: {:?}", ip);
-			if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
-				let tx_count = ports[0].send(vec![out_arp], queue_id);
-				println!("main: arp packet for ip: {:?}", ip);
+						if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
+							let tx_count = ports[0].send(vec![out_icmp], queue_id);
+							println!("main: icmp packet");
+						}
+					} else {
+						drop(pkt);
+					}
+				}
 			}
-		}
-
-		if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
-			let tx_count = ports[0].send(vec![out_icmp], queue_id);
-			println!("main: icmp packet");
 		}
 	}
 
-	let tx_count = ports[0].send(pkts, queue_id);
+	#[cfg(feature = "debug")]
+	println!("About to send");
+
+	let mut tx_count = 0;
+	if pkts.len() > 0 {
+		// tx_count = ports[0].send(pkts, queue_id);
+		#[cfg(feature = "debug")]
+		println!("Sent successfully!");
+	}
 	// let rx_count = rx_packetiser(ports, queue_id);
 	// let tx_count = tx_packetiser(ports, queue_id);
-	#[cfg(feature = "debug")]
-	if rx_count > 0 || tx_count > 0 {
-		// println!(
-		// 	"Received {} packets and sent out {} packets",
-		// 	rx_count, tx_count
-		// );
-	}
 	(rx_count, tx_count)
 }
 
@@ -214,16 +223,21 @@ fn main() {
 	println!("mempool set");
 
 	log::info!("setup ports");
-	let eth_devs = vec!["port0", "port1"];
+	// let eth_devs = vec!["port0", "port1"];
+	let eth_devs = vec!["port0"];
 	let mut ports: Vec<Port> = Vec::new();
 	{
 		let mempool = MEMPOOL.get();
-		for id in 0..=1 {
-			let mut p = Port::new(eth_devs[id], id as u16).unwrap();
-			p.configure(cores.len() as u16, mempool).unwrap();
-			p.start().unwrap();
-			ports.push(p);
-		}
+		let mut p = Port::new(eth_devs[0], 0u16).unwrap();
+		p.configure(cores.len() as u16, mempool).unwrap();
+		p.start().unwrap();
+		ports.push(p);
+		// for id in 0..=1 {
+		// 	let mut p = Port::new(eth_devs[id], id as u16).unwrap();
+		// 	p.configure(cores.len() as u16, mempool).unwrap();
+		// 	p.start().unwrap();
+		// 	ports.push(p);
+		// }
 	} // lock on MEMPOOL released
 
 	#[cfg(feature = "debug")]
@@ -233,12 +247,12 @@ fn main() {
 	}
 
 	let mut server = Server::new();
-	let ip_addr1 = Ipv4Address::new(10, 10, 2, 1);
-	let ip_addr2 = Ipv4Address::new(10, 10, 1, 2);
+	let ip_addr1 = Ipv4Address::new(192, 168, 1, 1);
+	// let ip_addr2 = Ipv4Address::new(10, 10, 1, 2);
 	let mac1 = ports[0].mac_addr().unwrap().to_ethernetaddr();
-	let mac2 = ports[1].mac_addr().unwrap().to_ethernetaddr();
+	// let mac2 = ports[1].mac_addr().unwrap().to_ethernetaddr();
 	server.add(ip_addr1, mac1);
-	server.add(ip_addr2, mac2);
+	// server.add(ip_addr2, mac2);
 	// let macs = [ports[0].mac_addr().unwrap().to_ethernetaddr(),
 	// ports[1].mac_addr().unwrap().to_ethernetaddr()].to_vec();
 	// server.add_macs(ip_addr, macs);

@@ -6,20 +6,26 @@
 mod mbuf;
 mod mempool;
 mod memring;
-mod port;
 mod memzone;
+mod port;
 
 pub use mbuf::*;
 pub use mempool::*;
 pub use memring::*;
-pub use port::*;
 pub use memzone::*;
+pub use port::*;
 
-use thiserror::Error;
-use libc::{EINVAL, ENOSPC, EEXIST, ENOMEM, ENODEV, ENOTSUP, ENOBUFS, ENOENT, EAGAIN, EALREADY, EFAULT, EPROTO, ENOEXEC};
-use std::{ffi::{CString, NulError}, os::raw};
 use dpdk_sys;
+use libc::{
+	EAGAIN, EALREADY, EEXIST, EFAULT, EINVAL, ENOBUFS, ENODEV, ENOENT, ENOEXEC, ENOMEM, ENOSPC,
+	ENOTSUP, EPROTO,
+};
 use log;
+use std::{
+	ffi::{CString, NulError},
+	os::raw,
+};
+use thiserror::Error;
 
 pub(crate) trait WrappedCString {
 	fn to_cstring(self) -> Result<CString, NulError>;
@@ -74,7 +80,7 @@ pub enum RingClientMapError {
 	#[error("Memory Error")]
 	MemoryError(MemoryError),
 	#[error("Client {} not found", _0)]
-	ClientNotFound(u16)
+	ClientNotFound(u16),
 }
 
 impl From<MemoryError> for RingClientMapError {
@@ -184,23 +190,25 @@ impl EALErrors {
 	}
 }
 
-
 /// Initializes the Environment Abstraction Layer (EAL)
 pub fn eal_init(args: Vec<String>) -> Result<(), EALErrors> {
 	log::info!("Args: {:?}", &args);
 	let len = args.len() as raw::c_int;
 	// the panic is fine here since it's due to wrong arguments
 	// though this error can be handled better
-	let args = args.into_iter().map(|s| CString::new(s).unwrap()).collect::<Vec<_>>();
+	let args = args
+		.into_iter()
+		.map(|s| CString::new(s).unwrap())
+		.collect::<Vec<_>>();
 	let mut ptrs = args
-        .iter()
-        .map(|s| s.as_ptr() as *mut raw::c_char)
+		.iter()
+		.map(|s| s.as_ptr() as *mut raw::c_char)
 		.collect::<Vec<_>>();
 	match unsafe { dpdk_sys::rte_eal_init(len, ptrs.as_mut_ptr()) } {
 		-1 => {
 			log::error!("failed to initialize eal");
 			Err(EALErrors::new())
-		},
+		}
 		_ => Ok(()),
 	}
 }
@@ -213,5 +221,33 @@ pub fn eal_cleanup(mempool: &Mempool) -> Result<(), EALErrors> {
 			0 => Ok(()),
 			_ => Err(EALErrors::Fault),
 		}
+	}
+}
+
+/// Frees the `rte_mbuf` in bulk.
+pub(crate) fn mbuf_free_bulk(mbufs: Vec<*mut dpdk_sys::rte_mbuf>) {
+	assert!(!mbufs.is_empty());
+
+	let mut to_free = Vec::with_capacity(mbufs.len());
+	let pool = unsafe { (*mbufs[0]).pool };
+
+	for mbuf in mbufs.into_iter() {
+		if pool == unsafe { (*mbuf).pool } {
+			to_free.push(mbuf as *mut raw::c_void);
+		} else {
+			unsafe {
+				let len = to_free.len();
+				dpdk_sys::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
+				to_free.set_len(0);
+			}
+
+			to_free.push(mbuf as *mut raw::c_void);
+		}
+	}
+
+	unsafe {
+		let len = to_free.len();
+		dpdk_sys::_rte_mempool_put_bulk(pool, to_free.as_ptr(), len as u32);
+		to_free.set_len(0);
 	}
 }

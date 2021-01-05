@@ -3,7 +3,16 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{ptr::NonNull, mem, error::Error, ptr, slice, os::raw, marker::Send, fmt};
+use std::{
+	error::Error,
+	fmt,
+	marker::{Send, Sync},
+	mem,
+	os::raw,
+	ptr,
+	ptr::NonNull,
+	slice,
+};
 
 use super::{BufError, MemoryError, Mempool};
 
@@ -53,6 +62,7 @@ pub struct Mbuf {
 	pub raw: NonNull<dpdk_sys::rte_mbuf>,
 }
 
+unsafe impl Sync for Mbuf {}
 unsafe impl Send for Mbuf {}
 
 impl Mbuf {
@@ -220,7 +230,10 @@ impl Mbuf {
 		}
 
 		if offset + T::size_of() > self.data_len() {
-			return Err(BufError::OutOfBuffer(T::size_of(), self.data_len() - offset));
+			return Err(BufError::OutOfBuffer(
+				T::size_of(),
+				self.data_len() - offset,
+			));
 		}
 
 		unsafe {
@@ -241,7 +254,10 @@ impl Mbuf {
 			return Err(BufError::BadOffset(offset, self.data_len()));
 		}
 		if offset + T::size_of() * count > self.data_len() - offset {
-			return Err(BufError::OutOfBuffer(T::size_of() * count, self.data_len() - offset))
+			return Err(BufError::OutOfBuffer(
+				T::size_of() * count,
+				self.data_len() - offset,
+			));
 		}
 
 		unsafe {
@@ -266,7 +282,10 @@ impl Mbuf {
 		let count = slice.len();
 
 		if offset + T::size_of() * count > self.data_len() {
-			return Err(BufError::OutOfBuffer(T::size_of() * count, self.data_len() - offset));
+			return Err(BufError::OutOfBuffer(
+				T::size_of() * count,
+				self.data_len() - offset,
+			));
 		}
 
 		unsafe {
@@ -289,14 +308,15 @@ impl Mbuf {
 
 		let mbufs = unsafe {
 			// dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
-			let rb = dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
+			let rb =
+				dpdk_sys::_rte_pktmbuf_alloc_bulk(mempool, ptrs.as_mut_ptr(), len as raw::c_uint);
 			match rb {
 				0 => {
 					ptrs.set_len(len);
 					ptrs.into_iter()
-					.map(|ptr| Mbuf::from_ptr(ptr))
-					.collect::<Vec<_>>()
-				},
+						.map(|ptr| Mbuf::from_ptr(ptr))
+						.collect::<Vec<_>>()
+				}
 				_ => return Err(MemoryError::NoBuf),
 			}
 		};
@@ -342,15 +362,15 @@ impl Mbuf {
 }
 
 impl fmt::Debug for Mbuf {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let raw = self.raw();
-        f.debug_struct(&format!("mbuf@{:p}", raw.buf_addr))
-            .field("buf_len", &raw.buf_len)
-            .field("pkt_len", &raw.pkt_len)
-            .field("data_len", &raw.data_len)
-            .field("data_off", &raw.data_off)
-            .finish()
-    }
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		let raw = self.raw();
+		f.debug_struct(&format!("mbuf@{:p}", raw.buf_addr))
+			.field("buf_len", &raw.buf_len)
+			.field("pkt_len", &raw.pkt_len)
+			.field("data_len", &raw.data_len)
+			.field("data_off", &raw.data_off)
+			.finish()
+	}
 }
 
 impl Drop for Mbuf {
