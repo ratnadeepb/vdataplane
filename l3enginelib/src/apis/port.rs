@@ -78,7 +78,15 @@ impl Port {
 		let rx_conf = &self.dev_info.default_rxconf;
 		let tx_conf = &self.dev_info.default_txconf;
 
-		for i in 0..num_cores {
+		let mut n_cores = num_cores;
+
+		if num_cores % 2 == 1 {
+			n_cores += 1;
+		} else {
+			n_cores = num_cores;
+		}
+
+		for i in 0..n_cores {
 			unsafe {
 				match dpdk_sys::rte_eth_rx_queue_setup(
 					self.id,
@@ -209,10 +217,6 @@ impl Port {
 	/// Send packets out of the port
 	pub fn send(&self, pkts: Vec<Mbuf>, queue_id: u16) -> usize {
 		let mut ptrs = pkts.into_iter().map(Mbuf::into_ptr).collect::<Vec<_>>();
-		// let mut ptrs = Vec::with_capacity(pkts.len());
-		// for pkt in pkts {
-		// 	ptrs.push(pkt.get_ptr());
-		// }
 
 		let count = unsafe {
 			dpdk_sys::_rte_eth_tx_burst(
@@ -220,7 +224,7 @@ impl Port {
 				queue_id,
 				// ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf,
 				ptrs.as_mut_ptr(),
-				Self::RX_BURST_MAX,
+				ptrs.len() as u16,
 			) as usize
 		};
 		#[cfg(feature = "debug")]
