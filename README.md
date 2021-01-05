@@ -5,6 +5,7 @@ Design heavily influenced by Capsule module and openNetVM.
 ## Known Issue
 
 - In some cases, `#include <immintrin.h>` had to be added to `/usr/local/include/rte_memcpy.h` (cloudlab)
+- `rte_eth_tx_burst` is not thread safe. Calling `rte_eth_tx_burst` and `rte_eth_rx_burst` from the same thread can result in a `segmentation fault`
 
 ## Possible Issues
 
