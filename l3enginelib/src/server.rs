@@ -50,8 +50,6 @@ impl Server {
 
 	/// Detect if a packet is an ARP Request
 	pub fn detect_arp(&self, buf: &Mbuf) -> Option<Ipv4Address> {
-		let arp_hdr = unsafe { *dpdk_sys::_pkt_arp_hdr(buf.get_ptr()) };
-		println!("{:#?}", arp_hdr);
 		for key in self.sockets.keys() {
 			let sip = Self::ipaddr_to_u32(key);
 			unsafe {
@@ -77,57 +75,57 @@ impl Server {
 		}
 	}
 
-	/// Provide an ICMP Reply
-	pub fn icmp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
-		unsafe {
-			let icmp_hdr = dpdk_sys::_pkt_icmp_hdr(buf.get_ptr());
-			if icmp_hdr.is_null() {
-				return None;
-			}
-			#[cfg(feature = "debug")]
-			println!("ICMP packet detected");
-			let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
-			let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
+	// Provide an ICMP Reply
+	// pub fn icmp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
+	// 	unsafe {
+	// 		let icmp_hdr = dpdk_sys::_pkt_icmp_hdr(buf.get_ptr());
+	// 		if icmp_hdr.is_null() {
+	// 			return None;
+	// 		}
+	// 		#[cfg(feature = "debug")]
+	// 		println!("ICMP packet detected");
+	// 		let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
+	// 		let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
 
-			if (*icmp_hdr).icmp_type == dpdk_sys::RTE_IP_ICMP_ECHO_REQUEST as u8
-				&& (*icmp_hdr).icmp_code == 0
-			{
-				drop(buf);
-				match Mbuf::new(mp) {
-					Ok(icmp_pkt) => {
-						let out_ether_hdr = dpdk_sys::_pkt_ether_hdr(icmp_pkt.get_ptr());
-						let out_ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(icmp_pkt.get_ptr());
-						let mut out_icmp_hdr = dpdk_sys::_pkt_icmp_hdr(icmp_pkt.get_ptr());
+	// 		if (*icmp_hdr).icmp_type == dpdk_sys::RTE_IP_ICMP_ECHO_REQUEST as u8
+	// 			&& (*icmp_hdr).icmp_code == 0
+	// 		{
+	// 			drop(buf);
+	// 			match Mbuf::new(mp) {
+	// 				Ok(icmp_pkt) => {
+	// 					let out_ether_hdr = dpdk_sys::_pkt_ether_hdr(icmp_pkt.get_ptr());
+	// 					let out_ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(icmp_pkt.get_ptr());
+	// 					let mut out_icmp_hdr = dpdk_sys::_pkt_icmp_hdr(icmp_pkt.get_ptr());
 
-						// invert the src and dst addresses
-						dpdk_sys::_rte_ether_addr_copy(
-							&mut (*ether_hdr).s_addr,
-							&mut (*out_ether_hdr).d_addr,
-						);
-						dpdk_sys::_rte_ether_addr_copy(
-							&mut (*ether_hdr).d_addr,
-							&mut (*out_ether_hdr).s_addr,
-						);
+	// 					// invert the src and dst addresses
+	// 					dpdk_sys::_rte_ether_addr_copy(
+	// 						&mut (*ether_hdr).s_addr,
+	// 						&mut (*out_ether_hdr).d_addr,
+	// 					);
+	// 					dpdk_sys::_rte_ether_addr_copy(
+	// 						&mut (*ether_hdr).d_addr,
+	// 						&mut (*out_ether_hdr).s_addr,
+	// 					);
 
-						(*ipv4_hdr).src_addr = (*out_ipv4_hdr).dst_addr;
-						(*ipv4_hdr).dst_addr = (*out_ipv4_hdr).src_addr;
+	// 					(*ipv4_hdr).src_addr = (*out_ipv4_hdr).dst_addr;
+	// 					(*ipv4_hdr).dst_addr = (*out_ipv4_hdr).src_addr;
 
-						(*icmp_hdr).icmp_type = dpdk_sys::RTE_IP_ICMP_ECHO_REPLY as u8;
+	// 					(*icmp_hdr).icmp_type = dpdk_sys::RTE_IP_ICMP_ECHO_REPLY as u8;
 
-						(*out_icmp_hdr).icmp_cksum =
-							dpdk_sys::_pkt_icmp_checksum((*icmp_hdr).icmp_cksum);
+	// 					(*out_icmp_hdr).icmp_cksum =
+	// 						dpdk_sys::_pkt_icmp_checksum((*icmp_hdr).icmp_cksum);
 
-						return Some(icmp_pkt);
-					}
-					Err(e) => {
-						log::error!("main: failed to create packet: {}", e);
-						return None;
-					}
-				}
-			}
-		}
-		None
-	}
+	// 					return Some(icmp_pkt);
+	// 				}
+	// 				Err(e) => {
+	// 					log::error!("main: failed to create packet: {}", e);
+	// 					return None;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// 	None
+	// }
 }
 
 impl fmt::Debug for Server {
