@@ -17,6 +17,7 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
+use crossbeam_queue::ArrayQueue;
 use l3enginelib::{
 	apis::{eal_cleanup, eal_init, Mbuf, Mempool, Memzone, Port, RingClientMap},
 	net::MacAddr,
@@ -53,6 +54,9 @@ pub static MEMPOOL: Storage<Mempool> = Storage::new();
 /// Send/Receive packets to/fro the processing core
 pub(crate) static PROC_CHANNEL: Storage<RingClientMap> = Storage::new();
 
+/// ArrayQueue to store packet to be sent to the packetiser
+pub static SEND_TO_PACKETISER: Storage<ArrayQueue<Mbuf>> = Storage::new();
+
 pub const NUM_RX_THREADS: usize = 1;
 pub const NUM_TX_THREADS: usize = 1;
 const PROCESSOR_THREAD: u16 = 1; // ID of the process that will process the packets
@@ -64,15 +68,15 @@ fn handle_signal() {
 /// Function to receive packets from the NIC
 fn rx_packetiser(ports: &Vec<Port>, rxq_id: u16) -> usize {
 	let mempool = MEMPOOL.get();
+	let bufs = SEND_TO_PACKETISER.get();
 	let mut count = 0;
-	for i in 0..ports.len() {
-		let rx_pkts = ports[i].receive(rxq_id);
-		if rx_pkts.len() > 0 {
-			count += rx_pkts.len();
-			if let Some(ch) = PROC_CHANNEL.try_get() {
-				for pkt in rx_pkts {
+	let len = bufs.len();
+	if len > 0 {
+		if let Some(ch) = PROC_CHANNEL.try_get() {
+			while !bufs.is_empty() {
+				if let Some(pkt) = bufs.pop() {
 					match ch.send(PROCESSOR_THREAD, pkt) {
-						Ok(_) => {}
+						Ok(_) => count += 1,
 						Err(e) => log::error!("failed to send packets to processing core: {}", e),
 					}
 				}
@@ -118,59 +122,53 @@ fn tx_packetiser(ports: &Vec<Port>, txq_id: u16) -> usize {
 
 fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize) {
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-	let mempool = MEMPOOL.get();
-	let mut pkts: Vec<Mbuf> = Vec::new();
-	for i in 0..ports.len() {
-		let mut rx_pkts = ports[i].receive(queue_id);
-		pkts.extend(rx_pkts.drain(..));
-	}
 
-	let rx_count = pkts.len();
-	// detect and send arp response
-	let mp = MEMPOOL.get();
+	let ring_pkts = SEND_TO_PACKETISER.get();
 
-	let mut len = 0;
-	for pkt in &mut pkts {
-		{
-			let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-			let ip_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(pkt.get_ptr()) };
-			if !ether_hdr.is_null() {
-				let ether_type = unsafe { (*ether_hdr).ether_type };
-				if ether_type != 0 {
-					len += 1;
-					println!("packet ether type: {:x}", unsafe {
-						(*ether_hdr).ether_type
-					});
-					if !ip_hdr.is_null() {
-						println!("packet ip proto type: {:x}", unsafe {
-							(*ip_hdr).next_proto_id
-						});
-					}
-					if let Some(ip) = server.detect_arp(pkt) {
-						println!("main: arp packet for ip: {:?}", ip);
-						if let Some(out_arp) = server.send_arp_reply(pkt, mp) {
-							let tx_count = ports[0].send(vec![out_arp], queue_id);
-							println!("main: arp packet for ip: {:?}", ip);
+	// Get more packets if there is space in the buffer, else send out the packets first
+	if ring_pkts.capacity() - ring_pkts.len() > RX_BURST_MAX {
+		let mempool = MEMPOOL.get();
+		let mut pkts: Vec<Mbuf> = Vec::new();
+		for i in 0..ports.len() {
+			let mut rx_pkts = ports[i].receive(queue_id);
+			pkts.extend(rx_pkts.drain(..));
+		}
+
+		let rx_count = pkts.len();
+		// detect and send arp response
+		let mp = MEMPOOL.get();
+
+		let mut len = 0;
+		let mut out_pkts = Vec::with_capacity(rx_count);
+		// let mut ring_pkts = Vec::with_capacity(rx_count);
+		for mut pkt in pkts {
+			{
+				let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+				let ip_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(pkt.get_ptr()) };
+				if !ether_hdr.is_null() {
+					let ether_type = unsafe { (*ether_hdr).ether_type };
+					if ether_type != 0 {
+						if let Some(_ip) = server.detect_arp(&pkt) {
+							len += 1;
+							if let Some(out_arp) = server.send_arp_reply(&mut pkt, mp) {
+								out_pkts.push(out_arp);
+							}
+						} else {
+							if let Err(_) = ring_pkts.push(pkt) {
+								log::error!("failed to push into the packetiser ring");
+							}
 						}
 					}
-
-					if let Some(out_icmp) = server.icmp_reply(pkt, mp) {
-						let tx_count = ports[0].send(vec![out_icmp], queue_id);
-						println!("main: icmp packet");
-					}
-				} else {
-					drop(pkt);
 				}
 			}
 		}
+		let mut _tx_count = 0;
+		if len > 0 {
+			_tx_count = ports[0].send(out_pkts, queue_id ^ 1);
+		}
 	}
-
-	let mut tx_count = 0;
-	if len > 0 {
-		tx_count = ports[0].send(pkts, queue_id ^ 1);
-	}
-	// let rx_count = rx_packetiser(ports, queue_id);
-	// let tx_count = tx_packetiser(ports, queue_id ^ 1);
+	let rx_count = rx_packetiser(ports, queue_id);
+	let tx_count = tx_packetiser(ports, queue_id ^ 1);
 	(rx_count, tx_count)
 }
 
@@ -279,6 +277,9 @@ fn main() {
 	assert!(responder.bind(PACKETISER_ZMQ_PORT).is_ok());
 	let mut msg = zmq::Message::new();
 	responder.recv(&mut msg, 0).unwrap();
+
+	// packets to be sent to the packetiser
+	SEND_TO_PACKETISER.set(ArrayQueue::new(PACKETISER_BURST));
 
 	#[cfg(feature = "debug")]
 	println!("main: secondary started");
