@@ -170,7 +170,7 @@ fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize)
 		tx_count = ports[0].send(pkts, queue_id ^ 1);
 	}
 	// let rx_count = rx_packetiser(ports, queue_id);
-	// let tx_count = tx_packetiser(ports, queue_id);
+	// let tx_count = tx_packetiser(ports, queue_id ^ 1);
 	(rx_count, tx_count)
 }
 
@@ -244,7 +244,7 @@ fn main() {
 	}
 
 	let mut server = Server::new();
-	let ip_addr1 = Ipv4Address::new(192, 168, 1, 1);
+	let ip_addr1 = Ipv4Address::new(10, 10, 1, 1);
 	// let ip_addr2 = Ipv4Address::new(10, 10, 1, 2);
 	let mac1 = ports[0].mac_addr().unwrap().to_ethernetaddr();
 	// let mac2 = ports[1].mac_addr().unwrap().to_ethernetaddr();

@@ -3,9 +3,9 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{collections::HashMap, fmt};
+use std::{collections::HashMap, fmt, os::raw::c_char};
 
-use crate::apis::{Mbuf, Mempool};
+use crate::apis::{Mbuf, Mempool, WrappedCString};
 use smoltcp::wire::{EthernetAddress, Ipv4Address};
 
 pub struct Server {
@@ -40,26 +40,24 @@ impl Server {
 	/// Convert IP address to u32
 	pub fn ipaddr_to_u32(ip: &Ipv4Address) -> u32 {
 		let mut ip_addr = Box::new(0u32); // ensure memory allocation is in heap
-		let mut arr: [i8; 4] = [0; 4];
-		let bytes = ip.as_bytes();
-		for i in 0..4 {
-			arr[i] = bytes[i] as i8;
-		}
+		let ip_str = WrappedCString::to_cstring(format!("{}", ip)).unwrap();
 
 		unsafe {
-			dpdk_sys::_pkt_parse_ip(arr.as_mut_ptr(), &mut *ip_addr);
+			dpdk_sys::_pkt_parse_ip(ip_str.as_ptr() as *mut c_char, &mut *ip_addr);
 		}
 		*ip_addr
 	}
 
 	/// Detect if a packet is an ARP Request
 	pub fn detect_arp(&self, buf: &Mbuf) -> Option<Ipv4Address> {
+		let arp_hdr = unsafe { *dpdk_sys::_pkt_arp_hdr(buf.get_ptr()) };
+		println!("{:#?}", arp_hdr);
 		for key in self.sockets.keys() {
 			let sip = Self::ipaddr_to_u32(key);
 			unsafe {
 				match dpdk_sys::_pkt_detect_arp(buf.get_ptr(), sip) {
 					1 => return Some(*key),
-					_ => continue,
+					_ => {}
 				}
 			}
 		}
@@ -67,13 +65,13 @@ impl Server {
 	}
 
 	/// Generate an ARP Request if an incoming packet is an ARP Request meant for us
-	pub fn send_arp_reply(&self, buf: &Mbuf, mp: &Mempool) -> Option<Mbuf> {
+	pub fn send_arp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
 		match self.detect_arp(buf) {
-			Some(_ip) => unsafe {
+			Some(ip) => unsafe {
 				let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
 				let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
 				let tip = (*ipv4_hdr).dst_addr;
-				let sip = (*ipv4_hdr).src_addr;
+				let sip = Self::ipaddr_to_u32(&ip);
 				let tha = &(*ether_hdr).d_addr as *const _ as *mut _;
 				let frm = &(*ether_hdr).s_addr as *const _ as *mut _;
 				Some(Mbuf::from_ptr(dpdk_sys::_pkt_arp_response(
