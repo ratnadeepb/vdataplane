@@ -155,49 +155,6 @@ impl Port {
 		}
 	}
 
-	/// Receive packets from the port
-	// pub fn receive(&self, mempool: &Mempool, queue_id: u16) -> Vec<Mbuf> {
-	// 	// OPTIMISE: horrible constructions all over
-	// 	let mut pkts: Vec<Mbuf> = Vec::with_capacity(Self::TX_BURST_MAX as usize);
-	// 	for _ in 0..Self::TX_BURST_MAX {
-	// 		match Mbuf::new(&mempool) {
-	// 			Ok(buf) => pkts.push(buf),
-	// 			Err(_) => log::error!("port receive: failed to create mbuf"),
-	// 		}
-	// 	}
-
-	// 	let mut ptrs: Vec<*mut dpdk_sys::rte_mbuf> = Vec::with_capacity(pkts.len());
-	// 	for pkt in &pkts {
-	// 		ptrs.push(pkt.get_ptr());
-	// 	}
-
-	// 	unsafe {
-	// 		dpdk_sys::_rte_eth_rx_burst(
-	// 			self.id,
-	// 			queue_id,
-	// 			ptrs.as_ptr() as *mut *mut dpdk_sys::rte_mbuf,
-	// 			Self::TX_BURST_MAX,
-	// 		)
-	// 	};
-
-	// 	#[cfg(feature = "debug")]
-	// 	{
-	// 		for ptr in &ptrs {
-	// 			// let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-	// 			// if !ether_hdr.is_null() {
-	// 			// 	let ether_type = unsafe { (*ether_hdr).ether_type };
-	// 			// 	if ether_type != 0 {
-	// 			// 		println!("packet ether type: {:?}", unsafe {
-	// 			// 			(*ether_hdr).ether_type
-	// 			// 		});
-	// 			// 	}
-	// 			// }
-	// 			println!("mbuf: {:p}", ptr);
-	// 		}
-	// 	}
-	// 	pkts
-	// }
-
 	pub fn receive(&self, queue_id: u16) -> Vec<Mbuf> {
 		const RX_BURST_MAX: usize = 32;
 		let mut ptrs = Vec::with_capacity(RX_BURST_MAX);
@@ -216,6 +173,7 @@ impl Port {
 
 	/// Send packets out of the port
 	pub fn send(&self, pkts: Vec<Mbuf>, queue_id: u16) -> usize {
+		let len = pkts.len();
 		let mut ptrs = pkts.into_iter().map(Mbuf::into_ptr).collect::<Vec<_>>();
 
 		let count = unsafe {
@@ -229,7 +187,10 @@ impl Port {
 		};
 		#[cfg(feature = "debug")]
 		println!("sent {} pkt(s)", ptrs.len());
-		super::mbuf_free_bulk(ptrs);
+
+		if count < len {
+			super::mbuf_free_bulk(ptrs);
+		}
 		count
 	}
 }

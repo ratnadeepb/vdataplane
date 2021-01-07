@@ -34,8 +34,7 @@ const PACKETISER_ZMQ_PORT: &str = "tcp://localhost:5555";
 // use packetiser;
 fn main() {
     packetiser::start();
-    let _proc = packetiser::Packetiser::new(BURST_MAX);
-    
+    let proc = packetiser::Packetiser::new(BURST_MAX);
     #[cfg(feature = "debug")]
     println!("packetiser created");
     TABLE.set(RoutingTable::new());
@@ -52,5 +51,31 @@ fn main() {
     #[cfg(feature = "debug")]
     println!("packetiser: created routing table");
     while true {
+        match proc.recv_from_engine_bulk() {
+            Ok(_count) => {
+                #[cfg(feature = "debug")]
+                println!("count: {}", _count);
+            }
+            Err(e) => log::error!("Error receiving from engine: {}", e),
+        }
+
+        #[cfg(feature = "debug")]
+        {
+            while !proc.i_bufqueue.is_empty() {
+                if let Some(pkt) = proc.i_bufqueue.pop() {
+                    if let Err(_) = proc.o_bufqueue.push(pkt) {
+                        log::error!("failed to put in out buf");
+                    }
+                }
+            }
+
+            match proc.send_outgoing_packets() {
+                Ok(_) => {
+                    #[cfg(feature = "debug")]
+                    println!("sent packets back to engine");
+                }
+                Err(e) => log::error!("Error receiving from engine: {}", e),
+            }
+        }
     }
 }
