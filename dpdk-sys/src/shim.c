@@ -224,8 +224,10 @@ _pkt_icmp_hdr(struct rte_mbuf *pkt)
         }
 
         if (ipv4->next_proto_id != IP_PROTOCOL_ICMP) {
+                printf("not icmp\n"); // debug
                 return NULL;
         }
+        printf("icmp pkt\n"); // debug
 
         uint8_t *pkt_data = rte_pktmbuf_mtod(pkt, uint8_t *) +
                             sizeof(struct rte_ether_hdr) +
@@ -259,8 +261,7 @@ _rte_mempool_cache_flush(struct rte_mempool_cache *cache,
 struct rte_arp_hdr *
 _pkt_arp_hdr(struct rte_mbuf *pkt)
 {
-        return rte_pktmbuf_mtod_offset(pkt, struct rte_arp_hdr *,
-                                       sizeof(struct rte_ether_hdr));
+        return rte_pktmbuf_mtod_offset(pkt, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
 }
 
 rte_be16_t
@@ -281,6 +282,8 @@ _pkt_parse_ip(char *ip_str, uint32_t *dest)
         int ret;
         int ip[4];
 
+        printf("parsed_ip: ip_str = %s\n", ip_str); // debug
+
         if (ip_str == NULL || dest == NULL) {
                 return -1;
         }
@@ -293,20 +296,57 @@ _pkt_parse_ip(char *ip_str, uint32_t *dest)
         return 0;
 }
 
+void
+_pkt_parse_char_ip(char* ip_dest, uint32_t ip_src) {
+        snprintf(ip_dest, 16, "%u.%u.%u.%u", (ip_src >> 24) & 0xFF, (ip_src >> 16) & 0xFF,
+                (ip_src >> 8) & 0xFF, ip_src & 0xFF);
+}
+
 int
 _pkt_detect_arp(struct rte_mbuf *pkt, uint32_t local_ip)
 {
         struct rte_ether_hdr *ether_hdr = _pkt_ether_hdr(pkt);
         struct rte_arp_hdr *arp_hdr;
-        // uint32_t local_ip;
-        // _pkt_parse_ip(ip_string, &local_ip);
 
         if (rte_cpu_to_be_16(ether_hdr->ether_type) == RTE_ETHER_TYPE_ARP) {
                 arp_hdr = _pkt_arp_hdr(pkt);
+                // debug section start
+                printf("arp_hdr->arp_hw: %d\n", arp_hdr->arp_hardware);
+                printf("arp_hdr->arp_protocol: %d\n", arp_hdr->arp_protocol);
+                printf("arp_hdr->arp_hlen: %d\n", arp_hdr->arp_hlen);
+                printf("arp_hdr->arp_plen: %d\n", arp_hdr->arp_plen);
+                printf("arp_hdr->arp_opcode: %d\n", arp_hdr->arp_opcode);
+                printf("arp_hdr->src mac: %d", arp_hdr->arp_data.arp_sha.addr_bytes[0]);
+                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[1]);
+                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[2]);
+                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[3]);
+                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[4]);
+                printf(":%d\n", arp_hdr->arp_data.arp_sha.addr_bytes[5]);
+                printf("arp_hdr->src ip: %d\n", rte_be_to_cpu_32(arp_hdr->arp_data.arp_sip));
+                char *ip_src = rte_malloc(NULL, 15, 0);
+                _pkt_parse_char_ip(ip_src, rte_be_to_cpu_32(arp_hdr->arp_data.arp_sip));
+                printf("arp_hdr->src ip: %s\n", ip_src);
+                printf("arp_hdr->dst mac: %d", arp_hdr->arp_data.arp_tha.addr_bytes[0]);
+                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[1]);
+                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[2]);
+                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[3]);
+                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[4]);
+                printf(":%d\n", arp_hdr->arp_data.arp_tha.addr_bytes[5]);
+                printf("arp_hdr->dst ip: %d\n", rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip));
+                char *ip_dst = rte_malloc(NULL, 15, 0);
+                _pkt_parse_char_ip(ip_dst, rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip));
+                printf("arp_hdr->dst ip: %s\n", ip_dst);
+                // debug section end
                 if (rte_cpu_to_be_16(arp_hdr->arp_opcode) ==
                     RTE_ARP_OP_REQUEST) {
                         if (rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip) ==
                             local_ip) {
+                                char *ip_src = NULL;
+                                char *ip_dst = NULL;
+                                _pkt_parse_char_ip(ip_src, local_ip);
+                                _pkt_parse_char_ip(ip_dst, arp_hdr->arp_data.arp_sip);
+                                printf("pkt src ip %s\n", ip_src); //debug
+                                printf("pkt dst ip %s\n", ip_dst); //debug
                                 return 1;
                         }
                 }
@@ -350,15 +390,16 @@ _pkt_arp_response(struct rte_ether_addr *tha, struct rte_ether_addr *frm,
 
         out_arp_hdr->arp_hardware = rte_cpu_to_be_16(RTE_ARP_HRD_ETHER);
         out_arp_hdr->arp_protocol = rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV4);
-        out_arp_hdr->arp_hlen = 6;
+        out_arp_hdr->arp_hlen = RTE_ETHER_ADDR_LEN;
+        // out_arp_hdr->arp_hlen = 6;
         out_arp_hdr->arp_plen = sizeof(uint32_t);
         out_arp_hdr->arp_opcode = rte_cpu_to_be_16(RTE_ARP_OP_REPLY);
 
         rte_ether_addr_copy(frm, &out_arp_hdr->arp_data.arp_sha);
         out_arp_hdr->arp_data.arp_sip = sip;
 
-        out_arp_hdr->arp_data.arp_tip = tip;
         rte_ether_addr_copy(tha, &out_arp_hdr->arp_data.arp_tha);
+        out_arp_hdr->arp_data.arp_tip = tip;
 
         return out_pkt;
 }
