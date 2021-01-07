@@ -144,8 +144,6 @@ uint32_t _rte_be_to_cpu_32(rte_be32_t x);
 int _pkt_detect_arp(struct rte_mbuf *buf, uint32_t local_ip);
 
 /* Create an ARP Response packet */
-struct rte_mbuf *_pkt_arp_response(struct rte_ether_addr *tha,
-                                   struct rte_ether_addr *frm, uint32_t tip,
-                                   uint32_t sip, struct rte_mempool *mp);
+struct rte_mbuf *_pkt_arp_response(struct rte_mbuf *pkt, struct rte_mempool *mp);
 
 void stop_and_close_ports();

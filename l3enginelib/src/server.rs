@@ -67,18 +67,9 @@ impl Server {
 	/// Generate an ARP Request if an incoming packet is an ARP Request meant for us
 	pub fn send_arp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
 		match self.detect_arp(buf) {
-			Some(ip) => unsafe {
-				let ether_hdr = dpdk_sys::_pkt_ether_hdr(buf.get_ptr());
-				let ipv4_hdr = dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr());
-				let tip = (*ipv4_hdr).dst_addr;
-				let sip = Self::ipaddr_to_u32(&ip);
-				let tha = &(*ether_hdr).d_addr as *const _ as *mut _;
-				let frm = &(*ether_hdr).s_addr as *const _ as *mut _;
+			Some(_ip) => unsafe {
 				Some(Mbuf::from_ptr(dpdk_sys::_pkt_arp_response(
-					tha,
-					frm,
-					tip,
-					sip,
+					buf.get_ptr(),
 					mp.get_ptr(),
 				)))
 			},

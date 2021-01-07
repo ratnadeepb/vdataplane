@@ -336,17 +336,13 @@ _pkt_detect_arp(struct rte_mbuf *pkt, uint32_t local_ip)
                 char *ip_dst = rte_malloc(NULL, 15, 0);
                 _pkt_parse_char_ip(ip_dst, rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip));
                 printf("arp_hdr->dst ip: %s\n", ip_dst);
+                rte_free((void *)ip_src);
+                rte_free((void *)ip_dst);
                 // debug section end
                 if (rte_cpu_to_be_16(arp_hdr->arp_opcode) ==
                     RTE_ARP_OP_REQUEST) {
                         if (rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip) ==
                             local_ip) {
-                                char *ip_src = NULL;
-                                char *ip_dst = NULL;
-                                _pkt_parse_char_ip(ip_src, local_ip);
-                                _pkt_parse_char_ip(ip_dst, arp_hdr->arp_data.arp_sip);
-                                printf("pkt src ip %s\n", ip_src); //debug
-                                printf("pkt dst ip %s\n", ip_dst); //debug
                                 return 1;
                         }
                 }
@@ -355,18 +351,33 @@ _pkt_detect_arp(struct rte_mbuf *pkt, uint32_t local_ip)
 }
 
 struct rte_mbuf *
-_pkt_arp_response(struct rte_ether_addr *tha, struct rte_ether_addr *frm,
-                  uint32_t tip, uint32_t sip, struct rte_mempool *mp)
+_pkt_arp_response(struct rte_mbuf *pkt, struct rte_mempool *mp)
 {
+        struct rte_ether_hdr *ether_hdr = _pkt_ether_hdr(pkt);
+        struct rte_arp_hdr *arp_hdr;
+        struct rte_ether_hdr *eth_hdr;
+
+        if (rte_cpu_to_be_16(ether_hdr->ether_type) != RTE_ETHER_TYPE_ARP) {
+                return NULL;
+        }
+        
+        arp_hdr = _pkt_arp_hdr(pkt);
+
+        if (rte_cpu_to_be_16(arp_hdr->arp_opcode) != RTE_ARP_OP_REQUEST) {
+                return NULL;
+        }
+
+        struct rte_ether_addr *tha = &ether_hdr->d_addr;
+        struct rte_ether_addr *frm = &ether_hdr->s_addr;
+        
+        arp_hdr = rte_pktmbuf_mtod_offset(pkt, struct rte_arp_hdr *, sizeof(struct rte_ether_hdr));
+        uint32_t tip = arp_hdr->arp_data.arp_sip;
+        uint32_t sip = arp_hdr->arp_data.arp_tip;
+
         struct rte_mbuf *out_pkt = NULL;
-        struct rte_ether_hdr *eth_hdr = NULL;
         struct rte_arp_hdr *out_arp_hdr = NULL;
 
         size_t pkt_size = 0;
-
-        if (tha == NULL) {
-                return NULL;
-        }
 
         out_pkt = rte_pktmbuf_alloc(mp);
         if (out_pkt == NULL) {
