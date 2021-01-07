@@ -282,8 +282,6 @@ _pkt_parse_ip(char *ip_str, uint32_t *dest)
         int ret;
         int ip[4];
 
-        printf("parsed_ip: ip_str = %s\n", ip_str); // debug
-
         if (ip_str == NULL || dest == NULL) {
                 return -1;
         }
@@ -310,35 +308,6 @@ _pkt_detect_arp(struct rte_mbuf *pkt, uint32_t local_ip)
 
         if (rte_cpu_to_be_16(ether_hdr->ether_type) == RTE_ETHER_TYPE_ARP) {
                 arp_hdr = _pkt_arp_hdr(pkt);
-                // debug section start
-                printf("arp_hdr->arp_hw: %d\n", arp_hdr->arp_hardware);
-                printf("arp_hdr->arp_protocol: %d\n", arp_hdr->arp_protocol);
-                printf("arp_hdr->arp_hlen: %d\n", arp_hdr->arp_hlen);
-                printf("arp_hdr->arp_plen: %d\n", arp_hdr->arp_plen);
-                printf("arp_hdr->arp_opcode: %d\n", arp_hdr->arp_opcode);
-                printf("arp_hdr->src mac: %d", arp_hdr->arp_data.arp_sha.addr_bytes[0]);
-                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[1]);
-                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[2]);
-                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[3]);
-                printf(":%d", arp_hdr->arp_data.arp_sha.addr_bytes[4]);
-                printf(":%d\n", arp_hdr->arp_data.arp_sha.addr_bytes[5]);
-                printf("arp_hdr->src ip: %d\n", rte_be_to_cpu_32(arp_hdr->arp_data.arp_sip));
-                char *ip_src = rte_malloc(NULL, 15, 0);
-                _pkt_parse_char_ip(ip_src, rte_be_to_cpu_32(arp_hdr->arp_data.arp_sip));
-                printf("arp_hdr->src ip: %s\n", ip_src);
-                printf("arp_hdr->dst mac: %d", arp_hdr->arp_data.arp_tha.addr_bytes[0]);
-                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[1]);
-                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[2]);
-                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[3]);
-                printf(":%d", arp_hdr->arp_data.arp_tha.addr_bytes[4]);
-                printf(":%d\n", arp_hdr->arp_data.arp_tha.addr_bytes[5]);
-                printf("arp_hdr->dst ip: %d\n", rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip));
-                char *ip_dst = rte_malloc(NULL, 15, 0);
-                _pkt_parse_char_ip(ip_dst, rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip));
-                printf("arp_hdr->dst ip: %s\n", ip_dst);
-                rte_free((void *)ip_src);
-                rte_free((void *)ip_dst);
-                // debug section end
                 if (rte_cpu_to_be_16(arp_hdr->arp_opcode) ==
                     RTE_ARP_OP_REQUEST) {
                         if (rte_be_to_cpu_32(arp_hdr->arp_data.arp_tip) ==
