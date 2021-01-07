@@ -58,7 +58,6 @@ const RTE_CORE_LIBS: &[&str] = &[
 	"rte_kvargs",
 	"rte_latencystats",
 	"rte_lpm",
-	// "rte_malloc", // Added by Deep
 	"rte_mbuf",
 	"rte_member",
 	"rte_mempool",
@@ -166,7 +165,8 @@ static RTE_PMD_LIBS: &[&str] = &[
 ];
 
 #[cfg(not(feature = "rustdoc"))]
-const RTE_DEPS_LIBS: &[&str] = &["numa", "pcap"];
+const RTE_DEPS_LIBS: &[&str] = &["numa"];
+// const RTE_DEPS_LIBS: &[&str] = &["numa", "pcap"];
 
 #[cfg(not(feature = "rustdoc"))]
 fn bind(path: &Path) {
@@ -216,7 +216,8 @@ fn main() {
 
 	// re-run build.rs upon changes
 	println!("cargo:rerun-if-changed=build.rs");
-	println!("cargo:rerun-if-changed=src/");
+	println!("cargo:rerun-if-changed=src/binding.h");
+	println!("cargo:rerun-if-changed=src/shim.c");
 }
 
 // Skip the build script on docs.rs
