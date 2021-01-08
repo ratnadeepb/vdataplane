@@ -161,6 +161,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlc"
+version = "3.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b57a92e9749e10f25a171adcebfafe72991d45e7ec2dcb853e8f83d9dafaeb08"
+dependencies = [
+ "nix",
+ "winapi",
+]
+
+[[package]]
 name = "dpdk-sys"
 version = "0.1.0"
 dependencies = [
@@ -222,6 +232,7 @@ dependencies = [
  "anyhow",
  "chashmap",
  "crossbeam-queue",
+ "ctrlc",
  "dpdk-sys",
  "libc",
  "log",
@@ -238,6 +249,7 @@ version = "0.1.0"
 dependencies = [
  "chashmap",
  "crossbeam-queue",
+ "ctrlc",
  "dpdk-sys",
  "l3enginelib",
  "log",
@@ -310,6 +322,18 @@ dependencies = [
  "error-chain",
  "pkg-config",
  "toml",
+]
+
+[[package]]
+name = "nix"
+version = "0.18.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83450fe6a6142ddd95fb064b746083fc4ef1705fe81f64a64e1d4b39f54a1055"
+dependencies = [
+ "bitflags",
+ "cc",
+ "cfg-if 0.1.10",
+ "libc",
 ]
 
 [[package]]
