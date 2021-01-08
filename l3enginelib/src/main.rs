@@ -27,9 +27,14 @@ use log;
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
+	cell::Cell,
 	mem,
 	ptr::NonNull,
 	sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
+	sync::{
+		atomic::{AtomicBool, Ordering},
+		Arc,
+	},
 	time::Duration,
 	vec,
 };
@@ -61,8 +66,11 @@ pub const NUM_RX_THREADS: usize = 1;
 pub const NUM_TX_THREADS: usize = 1;
 const PROCESSOR_THREAD: u16 = 1; // ID of the process that will process the packets
 
-fn handle_signal() {
-	unimplemented!()
+fn handle_signal(kr: Arc<AtomicBool>) {
+	ctrlc::set_handler(move || {
+		kr.store(false, Ordering::SeqCst);
+	})
+	.expect("Error setting Ctrl-C handler");
 }
 
 /// Function to receive packets from the NIC
@@ -184,7 +192,7 @@ fn main() {
 	// NOTE: hardcoded for now
 	// later get a python script scan the system and populate a config file
 	let args = vec![
-		String::from("-lcores=\"(0-1)@0\""),
+		String::from("-l 0-1"),
 		String::from("-n 4"),
 		String::from("--proc-type=primary"),
 		String::from("--"),
@@ -210,7 +218,11 @@ fn main() {
 	log::info!("setup mempool");
 	let mempool;
 	match Mempool::new(G_MEMPOOL_NAME) {
-		Ok(mp) => mempool = mp,
+		Ok(mp) => {
+			#[cfg(feature = "debug")]
+			println!("mempool address: {:p}", mp.get_ptr());
+			mempool = mp;
+		}
 		Err(e) => panic!("Failed to initialize mempool: {}", e),
 	}
 	MEMPOOL.set(mempool);
@@ -281,21 +293,25 @@ fn main() {
 	// packets to be sent to the packetiser
 	SEND_TO_PACKETISER.set(ArrayQueue::new(PACKETISER_BURST));
 
+	// handling Ctrl+C
+	let keep_running = Arc::new(AtomicBool::new(true));
+	let kr = keep_running.clone();
+	handle_signal(keep_running.clone());
+
 	#[cfg(feature = "debug")]
 	println!("main: secondary started");
 	// secondary has started up; start processing packets
-	while true {
-		// #[cfg(feature = "debug")]
-		// println!("main: starting rx/tx out of ports");
+	while kr.load(Ordering::SeqCst) {
 		let _ = external_pkt_processing(&ports, &server);
-		// break;
 	}
 
 	#[cfg(feature = "debug")]
 	println!("main: stopping");
-	let mempool = MEMPOOL.get();
-	eal_cleanup(mempool).unwrap();
-	log::info!("main: stopped");
+	unsafe { dpdk_sys::_pkt_stop_and_close_ports() };
 	#[cfg(feature = "debug")]
-	println!("main: stopped");
+	println!("main: ports closed");
+	let mempool = MEMPOOL.get();
+	#[cfg(feature = "debug")]
+	println!("main: mempool cleaned");
+	eal_cleanup(mempool).unwrap();
 }
