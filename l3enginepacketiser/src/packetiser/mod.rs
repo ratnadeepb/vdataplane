@@ -90,7 +90,7 @@ impl Packetiser {
 		println!("found channel");
 		let mempool = Mempool::lookup(G_MEMPOOL_NAME).unwrap(); // fatal error
 		#[cfg(feature = "debug")]
-		println!("found mempool");
+		println!("found mempool, address: {:p}", mempool.get_ptr());
 		let clientmap = RingClientMap::new();
 		let i_bufqueue = ArrayQueue::new(cap);
 		let o_bufqueue = ArrayQueue::new(cap);
@@ -164,7 +164,7 @@ impl Packetiser {
 			#[cfg(feature = "debug")]
 			println!("packetiser: received packets");
 		}
-		Ok(len)
+		Ok(count)
 	}
 
 	/// Send a bulk of packets to the engine
@@ -278,11 +278,32 @@ impl Packetiser {
 		}
 		Ok(())
 	}
+
+	fn u32_to_ipaddr(&self, ip: u32) -> Ipv4Address {
+		Ipv4Address::from_bytes(&[
+			((ip >> 24) & 0xFF) as u8,
+			((ip >> 16) & 0xFF) as u8,
+			((ip >> 8) & 0xFF) as u8,
+			(ip & 0xFF) as u8,
+		])
+	}
+
+	/// Get the header of an IPv4 packet
+	pub fn get_ip_hdr(&self, buf: &mut Mbuf) -> Option<Ipv4Address> {
+		let ipv4_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr()) };
+		#[cfg(feature = "debug")]
+		println!("in get_ip_hdr");
+		if ipv4_hdr.is_null() {
+			return None;
+		}
+		let dst_addr = unsafe { (*ipv4_hdr).dst_addr };
+		Some(Self::u32_to_ipaddr(&self, dst_addr))
+	}
 }
 
 pub(crate) fn start() {
 	let args = vec![
-		String::from("-lcores=\"(2-3)@0\""),
+		String::from("-l 2-3"),
 		String::from("-n 4"),
 		String::from("--proc-type=secondary"),
 		String::from("--"),
