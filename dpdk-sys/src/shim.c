@@ -127,7 +127,7 @@ _rte_ring_enqueue_bulk(struct rte_ring *r, void *const *obj_table,
 }
 
 void
-stop_and_close_ports()
+_pkt_stop_and_close_ports()
 {
         uint16_t port_id = 0;
         RTE_ETH_FOREACH_DEV(port_id)
@@ -150,9 +150,16 @@ _pkt_ether_hdr(struct rte_mbuf *pkt)
 struct rte_ipv4_hdr *
 _pkt_ipv4_hdr(struct rte_mbuf *pkt)
 {
-        struct rte_ipv4_hdr *ipv4 =
-            (struct rte_ipv4_hdr *)(rte_pktmbuf_mtod(pkt, uint8_t *) +
-                                    sizeof(struct rte_ether_hdr));
+        struct rte_ipv4_hdr *ipv4 = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+
+        if (ipv4 == NULL) {
+                return NULL;
+        }
+
+        printf("_pkt_ipv4_hdr: got non null ipv4 header\n"); // debug
+        // struct rte_ipv4_hdr *ipv4 =
+        //     (struct rte_ipv4_hdr *)(rte_pktmbuf_mtod(pkt, uint8_t *) +
+        //                             sizeof(struct rte_ether_hdr));
 
         /* In an IP packet, the first 4 bits determine the version.
          * The next 4 bits are called the Internet Header Length, or IHL.
@@ -161,6 +168,11 @@ _pkt_ipv4_hdr(struct rte_mbuf *pkt)
          */
         uint8_t version = (ipv4->version_ihl >> 4) & 0b1111;
         if (unlikely(version != 4)) {
+                printf("_pkt_ipv4_hdr: not ipv4\n"); // debug
+                char *ip_src = rte_malloc(NULL, 15, 0); // debug
+                uint32_t ip = rte_be_to_cpu_32(ipv4->src_addr); // debug
+                _pkt_parse_ip(ip_src, &ip); // debug
+                printf("_pkt_ipv4_hdr: src addr: %s\n", ip_src); // debug
                 return NULL;
         }
         return ipv4;
