@@ -101,9 +101,12 @@ impl Ring {
 		};
 		let nm = WrappedCString::to_cstring(format!("{}-{}", r, client_id))?;
 		let raw = unsafe { dpdk_sys::rte_ring_lookup(nm.as_ptr()) };
+
 		if raw.is_null() {
 			return Err(MemoryError::NoEntries);
 		}
+		#[cfg(feature = "debug")]
+		println!("ring raw pointer: {:p}", raw);
 		Self::from_ptr(client_id, rtype, raw)
 	}
 
