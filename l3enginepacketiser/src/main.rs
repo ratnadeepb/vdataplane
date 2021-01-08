@@ -18,7 +18,16 @@
 
 mod packetiser;
 
-use std::{process::exit, thread::sleep, time::Duration};
+use ctrlc;
+use std::{
+    process::exit,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread::sleep,
+    time::Duration,
+};
 
 use packetiser::{Packetiser, RoutingTable};
 use state::Storage;
@@ -28,6 +37,13 @@ pub const BURST_MAX: usize = 512;
 pub(crate) static TABLE: Storage<RoutingTable> = Storage::new();
 
 const PACKETISER_ZMQ_PORT: &str = "tcp://localhost:5555";
+
+fn handle_signal(kr: Arc<AtomicBool>) {
+    ctrlc::set_handler(move || {
+        kr.store(false, Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+}
 
 // DEVFLAGS: development flags - remove in production
 #[allow(while_true)]
@@ -50,11 +66,21 @@ fn main() {
 
     #[cfg(feature = "debug")]
     println!("packetiser: created routing table");
-    while true {
+
+    // handling Ctrl+C
+    let keep_running = Arc::new(AtomicBool::new(true));
+    let kr = keep_running.clone();
+    handle_signal(keep_running.clone());
+
+    while kr.load(Ordering::SeqCst) {
         match proc.recv_from_engine_bulk() {
             Ok(_count) => {
-                #[cfg(feature = "debug")]
-                println!("count: {}", _count);
+                // #[cfg(feature = "debug")]
+                // println!(
+                //     "count: {} and i_bufqueue size: {}",
+                //     _count,
+                //     proc.i_bufqueue.len()
+                // );
             }
             Err(e) => log::error!("Error receiving from engine: {}", e),
         }
@@ -62,17 +88,24 @@ fn main() {
         #[cfg(feature = "debug")]
         {
             while !proc.i_bufqueue.is_empty() {
-                if let Some(pkt) = proc.i_bufqueue.pop() {
+                if let Some(mut pkt) = proc.i_bufqueue.pop() {
+                    // check if IP
+                    if let Some(ip) = proc.get_ip_hdr(&mut pkt) {
+                        println!("Got ipv4 pkt from {:#?}", ip);
+                    } else {
+                        println!("Not an ipv4 pkt");
+                    }
                     if let Err(_) = proc.o_bufqueue.push(pkt) {
                         log::error!("failed to put in out buf");
                     }
                 }
             }
+            // println!("after while !proc.i_bufqueue.is_empty() loop");
 
             match proc.send_outgoing_packets() {
                 Ok(_) => {
-                    #[cfg(feature = "debug")]
-                    println!("sent packets back to engine");
+                    // #[cfg(feature = "debug")]
+                    // println!("sent packets back to engine");
                 }
                 Err(e) => log::error!("Error receiving from engine: {}", e),
             }
