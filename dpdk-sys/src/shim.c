@@ -147,16 +147,21 @@ _pkt_ether_hdr(struct rte_mbuf *pkt)
         return rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
 }
 
+void
+_pkt_parse_char_ip(char* ip_dest, uint32_t ip_src) {
+        snprintf(ip_dest, 16, "%u.%u.%u.%u", (ip_src >> 24) & 0xFF, (ip_src >> 16) & 0xFF,
+                (ip_src >> 8) & 0xFF, ip_src & 0xFF);
+}
+
 struct rte_ipv4_hdr *
 _pkt_ipv4_hdr(struct rte_mbuf *pkt)
 {
-        struct rte_ipv4_hdr *ipv4 = rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
+        struct rte_ether_hdr *eth_hdr = _pkt_ether_hdr(pkt);
+        struct rte_ipv4_hdr *ipv4 = (struct rte_ipv4_hdr *)(eth_hdr + 1);// rte_pktmbuf_mtod_offset(pkt, struct rte_ipv4_hdr *, sizeof(struct rte_ether_hdr));
 
         if (ipv4 == NULL) {
                 return NULL;
         }
-
-        printf("_pkt_ipv4_hdr: got non null ipv4 header\n"); // debug
         // struct rte_ipv4_hdr *ipv4 =
         //     (struct rte_ipv4_hdr *)(rte_pktmbuf_mtod(pkt, uint8_t *) +
         //                             sizeof(struct rte_ether_hdr));
@@ -166,16 +171,25 @@ _pkt_ipv4_hdr(struct rte_mbuf *pkt)
          * DPDK's ipv4_hdr struct combines both the version and the IHL into one
          * uint8_t.
          */
-        uint8_t version = (ipv4->version_ihl >> 4) & 0b1111;
-        if (unlikely(version != 4)) {
-                printf("_pkt_ipv4_hdr: not ipv4\n"); // debug
-                char *ip_src = rte_malloc(NULL, 15, 0); // debug
-                uint32_t ip = rte_be_to_cpu_32(ipv4->src_addr); // debug
-                _pkt_parse_ip(ip_src, &ip); // debug
-                printf("_pkt_ipv4_hdr: src addr: %s\n", ip_src); // debug
-                return NULL;
+        // uint8_t version = (ipv4->version_ihl >> 4) & 0b1111;
+        // if (unlikely(version != 4)) {
+        if (RTE_ETH_IS_IPV4_HDR(pkt->packet_type)) {
+                return ipv4;
         }
-        return ipv4;
+        // printf("_pkt_ipv4_hdr: not ipv4\n"); // debug
+        // uint8_t version = (ipv4->version_ihl >> 4);
+        // printf("_pkt_ipv4_hdr: version %d\n", version);
+        // char *ip_src = rte_malloc(NULL, 15, 0); // debug
+        // uint32_t ip_s = rte_be_to_cpu_32(ipv4->src_addr); // debug
+        // _pkt_parse_char_ip(ip_src, ip_s); // debug
+        // printf("_pkt_ipv4_hdr: src addr: %d\n", rte_be_to_cpu_32(ipv4->src_addr)); // debug
+        // printf("_pkt_ipv4_hdr: src addr: %s\n", ip_src); // debug
+        // char *ip_dst = rte_malloc(NULL, 15, 0); // debug
+        // uint32_t ip_d = rte_be_to_cpu_32(ipv4->dst_addr); // debug
+        // _pkt_parse_char_ip(ip_dst, ip_d); // debug
+        // printf("_pkt_ipv4_hdr: src addr: %d\n", rte_be_to_cpu_32(ipv4->dst_addr)); // debug
+        // printf("_pkt_ipv4_hdr: src addr: %s\n", ip_dst); // debug
+        return NULL;
 }
 
 #define IP_PROTOCOL_ICMP 1
@@ -304,12 +318,6 @@ _pkt_parse_ip(char *ip_str, uint32_t *dest)
         }
         *dest = RTE_IPV4(ip[0], ip[1], ip[2], ip[3]);
         return 0;
-}
-
-void
-_pkt_parse_char_ip(char* ip_dest, uint32_t ip_src) {
-        snprintf(ip_dest, 16, "%u.%u.%u.%u", (ip_src >> 24) & 0xFF, (ip_src >> 16) & 0xFF,
-                (ip_src >> 8) & 0xFF, ip_src & 0xFF);
 }
 
 int
