@@ -185,9 +185,6 @@ impl Port {
 				ptrs.len() as u16,
 			) as usize
 		};
-		#[cfg(feature = "debug")]
-		println!("sent {} pkt(s)", ptrs.len());
-
 		if count < len {
 			super::mbuf_free_bulk(ptrs);
 		}
