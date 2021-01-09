@@ -17,13 +17,17 @@
 #![allow(unused_imports)]
 #![allow(unused_variables)]
 
-use crossbeam_queue::ArrayQueue;
+mod rxbin;
+mod txbin;
+
+use crossbeam_queue::SegQueue;
 use l3enginelib::{
 	apis::{eal_cleanup, eal_init, Mbuf, Mempool, Memzone, Port, RingClientMap},
 	net::MacAddr,
 	server::Server,
 };
 use log;
+use rxbin::get_external_pkts;
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
@@ -38,6 +42,7 @@ use std::{
 	time::Duration,
 	vec,
 };
+use txbin::send_pkts_out;
 use zmq::Context;
 
 // These three values need to be the same here and in the `l3packetiser` crate
@@ -59,8 +64,12 @@ pub static MEMPOOL: Storage<Mempool> = Storage::new();
 /// Send/Receive packets to/fro the processing core
 pub(crate) static PROC_CHANNEL: Storage<RingClientMap> = Storage::new();
 
-/// ArrayQueue to store packet to be sent to the packetiser
-pub static SEND_TO_PACKETISER: Storage<ArrayQueue<Mbuf>> = Storage::new();
+/// Unbounded queue to hold packets that are to sent immediately out
+pub static OUT_PKTS: Storage<SegQueue<Mbuf>> = Storage::new();
+/// Unbounded queue to hold packets that are to sent to the packetiser
+pub static TO_PACKETISER: Storage<SegQueue<Mbuf>> = Storage::new();
+/// Unbounded queue to hold packets that are coming from the packetiser
+pub static FROM_PACKETISER: Storage<SegQueue<Mbuf>> = Storage::new();
 
 pub const NUM_RX_THREADS: usize = 1;
 pub const NUM_TX_THREADS: usize = 1;
@@ -71,113 +80,6 @@ fn handle_signal(kr: Arc<AtomicBool>) {
 		kr.store(false, Ordering::SeqCst);
 	})
 	.expect("Error setting Ctrl-C handler");
-}
-
-/// Function to receive packets from the NIC
-fn rx_packetiser(ports: &Vec<Port>, rxq_id: u16) -> usize {
-	let mempool = MEMPOOL.get();
-	let bufs = SEND_TO_PACKETISER.get();
-	let mut count = 0;
-	let len = bufs.len();
-	if len > 0 {
-		if let Some(ch) = PROC_CHANNEL.try_get() {
-			while !bufs.is_empty() {
-				if let Some(pkt) = bufs.pop() {
-					match ch.send(PROCESSOR_THREAD, pkt) {
-						Ok(_) => count += 1,
-						Err(e) => log::error!("failed to send packets to processing core: {}", e),
-					}
-				}
-			}
-		}
-	}
-	count
-}
-
-/// Function to send packets to the NIC
-fn tx_packetiser(ports: &Vec<Port>, txq_id: u16) -> usize {
-	let mut pkts = Vec::with_capacity(TX_BURST_MAX);
-	let mempool = MEMPOOL.get();
-	if let Some(ch) = PROC_CHANNEL.try_get() {
-		for i in 0..TX_BURST_MAX {
-			match Mbuf::new(mempool) {
-				Ok(mb) => pkts.push(mb),
-				Err(e) => {
-					log::error!("unable to create mbuf: {}", e);
-					return 0;
-				}
-			}
-			match ch.receive(PROCESSOR_THREAD, &mut pkts[i]) {
-				Ok(_) => {}
-				Err(e) => {
-					log::error!("failed to receive packets from the processing core: {}", e);
-					pkts.pop(); // remove the last buffer from the vector
-					break; // no more packets to receive
-				}
-			}
-		}
-	}
-	let count = pkts.len();
-	if count > 0 {
-		// REVIEW: As of now sending out of the first port always
-		let tx_count = ports[0].send(pkts, txq_id);
-		if tx_count == 0 {
-			log::info!("no packets sent out");
-		}
-	}
-	count
-}
-
-fn external_pkt_processing(ports: &Vec<Port>, server: &Server) -> (usize, usize) {
-	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-
-	let ring_pkts = SEND_TO_PACKETISER.get();
-
-	// Get more packets if there is space in the buffer, else send out the packets first
-	if ring_pkts.capacity() - ring_pkts.len() > RX_BURST_MAX {
-		let mempool = MEMPOOL.get();
-		let mut pkts: Vec<Mbuf> = Vec::new();
-		for i in 0..ports.len() {
-			let mut rx_pkts = ports[i].receive(queue_id);
-			pkts.extend(rx_pkts.drain(..));
-		}
-
-		let rx_count = pkts.len();
-		// detect and send arp response
-		let mp = MEMPOOL.get();
-
-		let mut len = 0;
-		let mut out_pkts = Vec::with_capacity(rx_count);
-		// let mut ring_pkts = Vec::with_capacity(rx_count);
-		for mut pkt in pkts {
-			{
-				let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-				let ip_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(pkt.get_ptr()) };
-				if !ether_hdr.is_null() {
-					let ether_type = unsafe { (*ether_hdr).ether_type };
-					if ether_type != 0 {
-						if let Some(_ip) = server.detect_arp(&pkt) {
-							len += 1;
-							if let Some(out_arp) = server.send_arp_reply(&mut pkt, mp) {
-								out_pkts.push(out_arp);
-							}
-						} else {
-							if let Err(_) = ring_pkts.push(pkt) {
-								log::error!("failed to push into the packetiser ring");
-							}
-						}
-					}
-				}
-			}
-		}
-		let mut _tx_count = 0;
-		if len > 0 {
-			_tx_count = ports[0].send(out_pkts, queue_id ^ 1);
-		}
-	}
-	let rx_count = rx_packetiser(ports, queue_id);
-	let tx_count = tx_packetiser(ports, queue_id ^ 1);
-	(rx_count, tx_count)
 }
 
 pub fn print_mac_addrs(ports: &Vec<Port>) {
@@ -290,8 +192,12 @@ fn main() {
 	let mut msg = zmq::Message::new();
 	responder.recv(&mut msg, 0).unwrap();
 
+	// packets to be sent out
+	OUT_PKTS.set(SegQueue::new());
 	// packets to be sent to the packetiser
-	SEND_TO_PACKETISER.set(ArrayQueue::new(PACKETISER_BURST));
+	TO_PACKETISER.set(SegQueue::new());
+	// packets to be received from the packetiser
+	FROM_PACKETISER.set(SegQueue::new());
 
 	// handling Ctrl+C
 	let keep_running = Arc::new(AtomicBool::new(true));
@@ -302,7 +208,16 @@ fn main() {
 	println!("main: secondary started");
 	// secondary has started up; start processing packets
 	while kr.load(Ordering::SeqCst) {
-		let _ = external_pkt_processing(&ports, &server);
+		let _rx_sz = get_external_pkts(&ports, &server);
+		#[cfg(feature = "debug")]
+		if _rx_sz > 0 {
+			println!("received: {} pkts", _rx_sz);
+		}
+		let _tx_sz = send_pkts_out(&ports);
+		#[cfg(feature = "debug")]
+		if _tx_sz > 0 {
+			println!("sent: {} pkts", _tx_sz);
+		}
 	}
 
 	#[cfg(feature = "debug")]
