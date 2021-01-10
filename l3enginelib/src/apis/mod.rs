@@ -1,7 +1,8 @@
-/*
- * Created on Mon Dec 28 2020:12:16:49
- * Created by Ratnadeep Bhattacharya
- */
+//! This module defines structures that are required for DPDK based memory operations
+//! 
+//! Errors related to DPDK operations
+//! 
+//! DPDK EAL startup and cleanup ops
 
 mod mbuf;
 mod mempool;

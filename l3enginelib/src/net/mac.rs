@@ -1,8 +1,3 @@
-/*
- * Created on Mon Dec 28 2020:13:47:53
- * Created by Ratnadeep Bhattacharya
- */
-
 // development flags - remove in production
 #![allow(dead_code)]
 #![allow(unused_imports)]

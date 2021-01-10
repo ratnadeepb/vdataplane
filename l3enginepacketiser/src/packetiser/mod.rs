@@ -1,7 +1,12 @@
-/*
- * Created on Thu Dec 31 2020:13:02:50
- * Created by Ratnadeep Bhattacharya
- */
+//! This module defines a routing table and the packetiser struct
+//!
+//! The RoutingTable maintains a map between client IDs and IPs assigned to them
+//!
+//! The Packetiser runs the prime secondary DPDK thread.
+//! This thread talks to the primary and gets packets that are not ARP and not dropped by the primary
+//! This thread is responsible for applying L3 network policies on these packets,
+//! register clients
+//! and to route them to and from clients
 
 // DEVFLAGS: development flags - remove in production
 #![allow(dead_code)]
@@ -173,7 +178,6 @@ impl Packetiser {
 			return 0;
 		}
 
-		// OPTIMISE: this is a horrible construction
 		let mut pkts = Vec::with_capacity(BURST_MAX);
 		for pkt in self.o_bufqueue.pop() {
 			pkts.push(pkt);

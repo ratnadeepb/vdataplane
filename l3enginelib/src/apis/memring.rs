@@ -1,7 +1,11 @@
-/*
- * Created on Mon Dec 28 2020:12:26:07
- * Created by Ratnadeep Bhattacharya
- */
+//! This module defines a struct that wraps around DPDK memory rings
+//! And certain structures associated with communicating between DPDK processes
+//!
+//! The Ring structure simply wraps around rte_ring
+//!
+//! A Channel is a combination to two Ring structures - one for sending packets and the other for receiving.
+//!
+//! The RingClientMap structure is basically a hashmap that maps clients to their respective channels.
 
 use anyhow::Result;
 use chashmap::CHashMap;
@@ -141,21 +145,6 @@ impl Ring {
 		for pkt in pkts.drain(..) {
 			ptrs.push(pkt.into_ptr());
 		}
-		// match unsafe {
-		// 	dpdk_sys::_rte_ring_enqueue_bulk(
-		// 		self.get_ptr(),
-		// 		ptrs.as_ptr() as *mut *mut raw::c_void,
-		// 		pkts.len() as u32,
-		// 		ptr::null::<u32>() as *mut u32,
-		// 	)
-		// } {
-		// 	0 => Ok(()),
-		// 	_ => {
-		// 		#[cfg(feature = "debug")]
-		// 		println!("channel enqueue error");
-		// 		Err(MemoryError::new())
-		// 	}
-		// }
 		unsafe {
 			dpdk_sys::_rte_ring_enqueue_bulk(
 				self.get_ptr(),
@@ -173,18 +162,6 @@ impl Ring {
 		for pkt in pkts {
 			ptrs.push(pkt.get_ptr());
 		}
-		// match unsafe {
-		// 	// pass the raw pointers
-		// 	dpdk_sys::_rte_ring_dequeue_bulk(
-		// 		self.get_ptr(),
-		// 		ptrs.as_ptr() as *mut *mut raw::c_void,
-		// 		ptrs.len() as u32,
-		// 		ptr::null::<u32>() as *mut u32,
-		// 	)
-		// } {
-		// 	0 => Ok(()),
-		// 	_ => Err(MemoryError::new()),
-		// }
 		unsafe {
 			// pass the raw pointers
 			dpdk_sys::_rte_ring_dequeue_bulk(
@@ -334,6 +311,8 @@ impl RingClientMap {
 			None => return Err(RingClientMapError::ClientNotFound(key)),
 		};
 		channel.send_to_client(pkt)?;
+		#[cfg(feature = "debug")]
+		println!("Sent to client: {}", key);
 		Ok(())
 	}
 
@@ -346,6 +325,8 @@ impl RingClientMap {
 			None => return Err(RingClientMapError::ClientNotFound(key)),
 		}
 		channel.receive_from_client(pkt)?;
+		#[cfg(feature = "debug")]
+		println!("Received from client: {}", key);
 		Ok(())
 	}
 

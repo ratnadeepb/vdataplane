@@ -1,7 +1,6 @@
-/*
- * Created on Thu Dec 31 2020:13:50:59
- * Created by Ratnadeep Bhattacharya
- */
+//! This is starting point of the packetiser
+//!
+//! It would crash if the primary, `l3enginebin`, is not started first
 
 // DEVFLAGS: development flags - remove in production
 #![allow(dead_code)]

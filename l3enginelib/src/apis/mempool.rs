@@ -1,7 +1,4 @@
-/*
- * Created on Mon Dec 28 2020:12:19:51
- * Created by Ratnadeep Bhattacharya
- */
+//! The Mempool struct contains a pointer to a DPDK mempool that is guaranteed to be non null
 
 use std::{ptr::{self, NonNull}, ffi, fmt, mem};
 use super::{MemoryError, WrappedCString};

@@ -1,8 +1,3 @@
-/*
- * Created on Mon Dec 28 2020:13:48:35
- * Created by Ratnadeep Bhattacharya
- */
-
 mod ipv4hdr;
 mod mac;
 // mod arp;
@@ -11,9 +6,9 @@ pub use ipv4hdr::*;
 pub use mac::*;
 // pub use arp::*;
 
-use thiserror::Error;
-use libc::ENODEV;
 use dpdk_sys;
+use libc::ENODEV;
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum MacError {

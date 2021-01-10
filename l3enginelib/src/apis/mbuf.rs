@@ -1,7 +1,4 @@
-/*
- * Created on Mon Dec 28 2020:12:18:43
- * Created by Ratnadeep Bhattacharya
- */
+//! The Mbuf structure wraps around DPDK packets such that they are guaranteed to be non null
 
 use std::{
 	error::Error,

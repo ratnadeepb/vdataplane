@@ -1,7 +1,8 @@
-/*
- * Created on Sat Jan 09 2021:12:00:39
- * Created by Ratnadeep Bhattacharya
- */
+//! This module is responsible for the two functions that get packets into the main engine
+//!
+//! There are two sources of packets for the main engine:
+//! 	1. External packets from the NIC
+//! 	2. Internal packets from the packetiser
 
 use crate::{
 	Server, FROM_PACKETISER, MEMPOOL, OUT_PKTS, PROCESSOR_THREAD, PROC_CHANNEL, TO_PACKETISER,

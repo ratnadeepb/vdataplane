@@ -1,7 +1,8 @@
-/*
- * Created on Sat Jan 09 2021:13:25:02
- * Created by Ratnadeep Bhattacharya
- */
+//! This module is responsible for the two functions that send packets out of the main engine
+//!
+//! There are two sinks of packets for the main engine:
+//! 	1. External packets out of the NIC
+//! 	2. Internal packets to the packetiser
 
 use crate::{OUT_PKTS, PROCESSOR_THREAD, PROC_CHANNEL, TO_PACKETISER};
 use l3enginelib::apis::Port;
@@ -10,15 +11,11 @@ pub(crate) fn send_pkts_out(ports: &Vec<Port>) -> usize {
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
 	let out_pkts = OUT_PKTS.get();
 	let mut pkts = Vec::with_capacity(out_pkts.len());
+
 	if out_pkts.is_empty() {
 		return 0usize;
 	}
-	// for _ in 0..sz {
-	// 	match out_pkts.pop() {
-	// 		Some(pkt) => pkts.push(pkt),
-	// 		None => break,
-	// 	}
-	// }
+
 	while let Some(pkt) = out_pkts.pop() {
 		pkts.push(pkt);
 	}

@@ -1,8 +1,3 @@
-/*
- * Created on Mon Dec 28 2020:13:48:08
- * Created by Ratnadeep Bhattacharya
- */
-
 use crate::apis::Mbuf;
 use smoltcp::wire::Ipv4Address;
 use dpdk_sys;
