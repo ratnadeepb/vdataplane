@@ -7,22 +7,22 @@
 //! This thread is responsible for applying L3 network policies on these packets,
 //! register clients
 //! and to route them to and from clients
+//!
+//!
+//! This is the first client we are building.
+//! The design is that the main DPDK process only handles incoming and outgoing packets
+//! Incoming packets are handed over to a secondary DPDK process
+//! This module performs the basic processing and sends them over to the clients
+//! It will also receive the modules from the clients and send them to main process
+//!
+//! This module will ultimately hold filters that can be enabled to apply certain policies
 
 // DEVFLAGS: development flags - remove in production
 #![allow(dead_code)]
 
 use crate::{BURST_MAX, TABLE};
-///
-/// This is the first client we are building.
-/// The design is that the main DPDK process only handles incoming and outgoing packets
-/// Incoming packets are handed over to a secondary DPDK process
-/// This module performs the basic processing and sends them over to the clients
-/// It will also receive the modules from the clients and send them to main process
-///
-/// This module will ultimately hold filters that can be enabled to apply certain policies
-///
 use chashmap::CHashMap;
-use crossbeam_queue::ArrayQueue;
+use crossbeam_queue::SegQueue;
 use l3enginelib::{
 	apis::{eal_init, Channel, Mbuf, MemoryError, Mempool, RingClientMap, RingClientMapError},
 	net::Ipv4Hdr,
@@ -78,10 +78,10 @@ pub struct Packetiser {
 	channel: Channel, // receive and transmit packets from and to the main process
 	mempool: Mempool, // mempool to use
 	clientmap: RingClientMap,
-	pub(crate) i_bufqueue: ArrayQueue<Mbuf>, // packets that have been received from the primary process
-	pub(crate) o_bufqueue: ArrayQueue<Mbuf>, // packets that have been received from clients
-	cap: usize,                              // number of packets to be held in the buffers at any time
-	allocated_ids: Vec<u16>,                 // hold all ids that have been allocated
+	pub(crate) i_bufqueue: SegQueue<Mbuf>, // packets that have been received from the primary process
+	pub(crate) o_bufqueue: SegQueue<Mbuf>, // packets that have been received from clients
+	cap: usize,                            // number of packets to be held in the buffers at any time
+	allocated_ids: Vec<u16>,               // hold all ids that have been allocated
 }
 
 pub static mut LAST_ALLOCATED_ID: u16 = 1; // ID of packetiser itself
@@ -97,8 +97,8 @@ impl Packetiser {
 		#[cfg(feature = "debug")]
 		println!("found mempool, address: {:p}", mempool.get_ptr());
 		let clientmap = RingClientMap::new();
-		let i_bufqueue = ArrayQueue::new(cap);
-		let o_bufqueue = ArrayQueue::new(cap);
+		let i_bufqueue = SegQueue::new();
+		let o_bufqueue = SegQueue::new();
 		let allocated_ids = Vec::new();
 		Self {
 			channel,
@@ -143,11 +143,11 @@ impl Packetiser {
 
 	pub(crate) fn recv_from_engine_bulk(&self) -> Result<usize, MemoryError> {
 		// calculate the space left in the queue
-		let range = self.i_bufqueue.capacity() - self.i_bufqueue.len();
+		// let range = self.i_bufqueue.capacity() - self.i_bufqueue.len();
 
 		// get those many packets only
-		let mut pkts = Vec::with_capacity(range);
-		for _ in 0..range {
+		let mut pkts = Vec::with_capacity(BURST_MAX);
+		for _ in 0..BURST_MAX {
 			let buf_res = Mbuf::new(&self.mempool);
 			match buf_res {
 				Ok(buf) => pkts.push(buf),
@@ -165,7 +165,7 @@ impl Packetiser {
 		let count = self.channel.recv_from_engine_bulk(&mut pkts, len);
 		if count != 0 {
 			pkts.drain(0..count)
-				.for_each(|pkt| self.i_bufqueue.push(pkt).unwrap());
+				.for_each(|pkt| self.i_bufqueue.push(pkt));
 			#[cfg(feature = "debug")]
 			println!("packetiser: received packets");
 		}
@@ -205,24 +205,25 @@ impl Packetiser {
 
 	/// Store packets sent from the main process in the incoming buffer
 	pub(crate) fn store_incoming(&self) -> Result<(), MemoryError> {
-		let mut len = self.i_bufqueue.capacity() - self.i_bufqueue.len();
-		let mut pkts = Vec::with_capacity(len);
-		for i in 0..len {
+		// let mut len = self.i_bufqueue.capacity() - self.i_bufqueue.len();
+		let mut len = 0;
+		let mut pkts = Vec::with_capacity(BURST_MAX);
+		for i in 0..BURST_MAX {
 			match Mbuf::new(&self.mempool) {
-				Ok(buf) => pkts.push(buf),
+				Ok(buf) => {
+					pkts.push(buf);
+					len = i + 1;
+				}
 				Err(e) => {
 					log::error!("packetiser: buf creation failed: {}", e);
-					len = i + 1;
+					pkts.truncate(len);
 					break;
 				}
 			}
 		}
 		let count = self.channel.recv_from_engine_bulk(&mut pkts, len);
 		for pkt in pkts.drain(0..count) {
-			match self.i_bufqueue.push(pkt) {
-				Ok(_) => {}
-				Err(_) => log::error!("packetiser: failed to store packet"),
-			}
+			self.i_bufqueue.push(pkt);
 		}
 		Ok(())
 	}
@@ -239,28 +240,28 @@ impl Packetiser {
 
 	/// Store packets to be sent to the main process in the outgoing buffer
 	pub(crate) fn store_outgoing(&self) -> Result<(), MemoryError> {
-		let mut len = self.o_bufqueue.capacity() - self.o_bufqueue.len();
-		let mut pkts = Vec::with_capacity(len);
-		for i in 0..len {
+		// let mut len = self.o_bufqueue.capacity() - self.o_bufqueue.len();
+		let mut pkts = Vec::with_capacity(BURST_MAX);
+		let mut len = 0;
+		for i in 0..BURST_MAX {
 			match Mbuf::new(&self.mempool) {
-				Ok(buf) => pkts.push(buf),
+				Ok(buf) => {
+					pkts.push(buf);
+					len = i + 1;
+				}
 				Err(e) => {
 					log::error!("packetiser: buf creation failed: {}", e);
-					len = i + 1;
+					pkts.truncate(len);
 					break;
 				}
 			}
 		}
 		// a simple round robing policy to collect packets from clients
-		let mut i = 0;
-		while i != len {
+		for _ in 0..len {
 			for key in &self.allocated_ids {
 				let mut pkt = Mbuf::new(&self.mempool)?;
 				match self.clientmap.receive(*key, &mut pkt) {
-					Ok(_) => match self.o_bufqueue.push(pkt) {
-						Ok(_) => i += 1,
-						Err(_) => log::error!("packetiser: failed to add to out buf"),
-					},
+					Ok(_) => self.o_bufqueue.push(pkt),
 					Err(_) => continue,
 				}
 			}
