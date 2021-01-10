@@ -94,9 +94,7 @@ fn main() {
                     } else {
                         println!("Not an ipv4 pkt");
                     }
-                    if let Err(_) = proc.o_bufqueue.push(pkt) {
-                        log::error!("failed to put in out buf");
-                    }
+                    proc.o_bufqueue.push(pkt);
                 }
             }
             // println!("after while !proc.i_bufqueue.is_empty() loop");
