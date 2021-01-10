@@ -1,7 +1,6 @@
-/*
- * Created on Fri Dec 25 2020:15:42:58
- * Created by Ratnadeep Bhattacharya
- */
+//! This is the starting point of our engine
+//!
+//! The main function starts the primary DPDK process
 
 // production flags
 // #![warn(
@@ -27,7 +26,7 @@ use l3enginelib::{
 	server::Server,
 };
 use log;
-use rxbin::get_external_pkts;
+use rxbin::{get_external_pkts, get_from_packetiser};
 use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
@@ -42,7 +41,7 @@ use std::{
 	time::Duration,
 	vec,
 };
-use txbin::send_pkts_out;
+use txbin::{send_pkts_out, send_to_packetiser};
 use zmq::Context;
 
 // These three values need to be the same here and in the `l3packetiser` crate
@@ -88,6 +87,33 @@ pub fn print_mac_addrs(ports: &Vec<Port>) {
 	}
 }
 
+fn rx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>, server: Server) {
+	while kr.load(Ordering::SeqCst) {
+		// get packets from outside
+		let _rx_sz = get_external_pkts(&ports, &server);
+		#[cfg(feature = "debug")]
+		if _rx_sz > 0 {
+			println!("received: {} pkts", _rx_sz);
+		}
+		// send packets to the packetiser
+		send_to_packetiser();
+	}
+}
+
+fn tx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>) {
+	while kr.load(Ordering::SeqCst) {
+		// get packets from packetiser
+		get_from_packetiser();
+
+		// send all outgoing packets
+		let _tx_sz = send_pkts_out(&ports);
+		#[cfg(feature = "debug")]
+		if _tx_sz > 0 {
+			println!("sent: {} pkts", _tx_sz);
+		}
+	}
+}
+
 #[allow(while_true)]
 fn main() {
 	log::info!("Initializing DPDK env ...");
@@ -112,7 +138,7 @@ fn main() {
 	// NOTE: once again hardcoded
 	let cores = (0..2).collect::<Vec<u32>>();
 	// let num_cores = unsafe { dpdk_sys::rte_lcore_count() } as u16;
-	// let cur_core = unsafe { dpdk_sys::_rte_lcore_id() };
+	let cur_core = unsafe { dpdk_sys::_rte_lcore_id() };
 	// let rx_cores = NUM_RX_THREADS;
 	// let tx_cores = num_cores - rx_cores;
 	// let socket_id = unsafe { dpdk_sys::rte_socket_id() } as i32;
@@ -192,6 +218,8 @@ fn main() {
 	let mut msg = zmq::Message::new();
 	responder.recv(&mut msg, 0).unwrap();
 
+	// set PROC_CHANNEL
+	PROC_CHANNEL.set(ringmap);
 	// packets to be sent out
 	OUT_PKTS.set(SegQueue::new());
 	// packets to be sent to the packetiser
@@ -208,17 +236,30 @@ fn main() {
 	println!("main: secondary started");
 	// secondary has started up; start processing packets
 	while kr.load(Ordering::SeqCst) {
+		// get packets from outside
 		let _rx_sz = get_external_pkts(&ports, &server);
 		#[cfg(feature = "debug")]
 		if _rx_sz > 0 {
 			println!("received: {} pkts", _rx_sz);
 		}
+		// send packets to the packetiser
+		send_to_packetiser();
+		// get packets from packetiser
+		get_from_packetiser();
+
+		// send all outgoing packets
 		let _tx_sz = send_pkts_out(&ports);
 		#[cfg(feature = "debug")]
 		if _tx_sz > 0 {
 			println!("sent: {} pkts", _tx_sz);
 		}
 	}
+
+	// dpdk_sys::rte_eal_remote_launch(
+	// 	Some(rx_thread_main),
+	// 	&[kr.clone(), &ports, &server],
+	// 	cur_core,
+	// );
 
 	#[cfg(feature = "debug")]
 	println!("main: stopping");
