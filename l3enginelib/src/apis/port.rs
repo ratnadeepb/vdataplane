@@ -1,20 +1,24 @@
-/*
- * Created on Mon Dec 28 2020:12:28:07
- * Created by Ratnadeep Bhattacharya
- */
+//! The Port structure is a wrapper around physical NIC ports
+
+// TODO: It might be a good idea for Port to hold a mapping between core id and send and receive queues. This is currently done in `txbin` with `queue_id ^ 1` for the transmit queue and by ensuring that every Port always sets up an even number of queues.
 
 // DEVFLAGS: development flags - remove in production
 #![allow(dead_code)]
 
 use crate::net::MacAddr;
+use std::marker::{Send, Sync};
 
 use super::{Mbuf, Mempool, PortError};
 
+#[derive(Clone, Copy)]
 pub struct Port {
 	pub id: u16,
 	pub device: &'static str,
 	pub dev_info: dpdk_sys::rte_eth_dev_info,
 }
+
+unsafe impl Sync for Port {}
+unsafe impl Send for Port {}
 
 impl Port {
 	const PORTMASK: u8 = 0x03;
