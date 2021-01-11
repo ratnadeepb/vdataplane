@@ -146,4 +146,7 @@ int _pkt_detect_arp(struct rte_mbuf *buf, uint32_t local_ip);
 /* Create an ARP Response packet */
 struct rte_mbuf *_pkt_arp_response(struct rte_mbuf *pkt, struct rte_mempool *mp);
 
+/* Get the raw packet from rte_mbuf */
+uint8_t *_pkt_raw_pkt(struct rte_mbuf *pkt);
+
 void _pkt_stop_and_close_ports();
