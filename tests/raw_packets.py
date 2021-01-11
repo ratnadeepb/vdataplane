@@ -1,32 +1,30 @@
 #!/usr/bin/python3
-#
-# Created on Fri Jan 08 2021:20:27:16
-# Created by Ratnadeep Bhattacharya
-#
 
-import scapy
+from scapy.all import *
+
 
 def gen_tcp(dst):
     """
     create a tcp packet to send to the dst
     """
-	eth_layer = scapy.Ether()
-    ip_layer = scapy.IP(dst=dst)
-    tcp_layer = scapy.TCP()
+	eth_layer = Ether()
+    ip_layer = IP(dst=dst)
+    tcp_layer = TCP()
     return eth_layer / ip_layer / tcp_layer
 
-def send(pkt, iface):
+
+def send(pkt):
 	"""
 	send a packet across
 	"""
-    scapy.sendp(pkt, iface=iface)
+    send(pkt)
 
 
-def send_tcp(dst, iface):
+def send_tcp(dst):
 	"""
 	send a tcp packet to dst
 	"""
-    send(gen_tcp(dst), iface)
+    send(gen_tcp(dst))
 
 
 if __name__ == "__main__":
@@ -37,4 +35,5 @@ if __name__ == "__main__":
 	packet = ethernet/network/transport
 	sendp(packet, iface="en0")
 	"""
-    send_tcp("10.10.1.1", "enp6s0f0")
+	while True:
+    	send_tcp("10.10.1.1")
