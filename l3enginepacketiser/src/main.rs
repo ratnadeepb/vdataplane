@@ -32,7 +32,10 @@ use packetiser::{Packetiser, RoutingTable};
 use state::Storage;
 use zmq::Context;
 
+#[cfg(not(feature = "debug"))]
 pub const BURST_MAX: usize = 512;
+#[cfg(feature = "debug")]
+pub const BURST_MAX: usize = 2;
 pub(crate) static TABLE: Storage<RoutingTable> = Storage::new();
 
 const PACKETISER_ZMQ_PORT: &str = "tcp://localhost:5555";
@@ -73,15 +76,22 @@ fn main() {
 
     while kr.load(Ordering::SeqCst) {
         match proc.recv_from_engine_bulk() {
-            Ok(_count) => {
-                // #[cfg(feature = "debug")]
-                // println!(
-                //     "count: {} and i_bufqueue size: {}",
-                //     _count,
-                //     proc.i_bufqueue.len()
-                // );
+            Ok(_count) =>
+            {
+                #[cfg(feature = "debug")]
+                if _count > 0 {
+                    println!(
+                        "count: {} and i_bufqueue size: {}",
+                        _count,
+                        proc.i_bufqueue.len()
+                    );
+                }
             }
-            Err(e) => log::error!("Error receiving from engine: {}", e),
+            Err(e) => {
+                #[cfg(feature = "debug")]
+                println!("Error receiving from engine: {}", e);
+                log::error!("Error receiving from engine: {}", e);
+            }
         }
 
         #[cfg(feature = "debug")]

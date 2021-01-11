@@ -92,7 +92,17 @@ impl Packetiser {
 	pub fn new(cap: usize) -> Self {
 		let channel = Channel::lookup(Self::PACKETISER_ID).unwrap(); // fatal error
 		#[cfg(feature = "debug")]
-		println!("found channel");
+		{
+			println!("found channel");
+			println!(
+				"packetiser: new : client_to_engine found {:p}",
+				channel.client_to_engine.get_ptr()
+			);
+			println!(
+				"packetiser: new : engine_to_client found {:p}",
+				channel.engine_to_client.get_ptr()
+			);
+		}
 		let mempool = Mempool::lookup(G_MEMPOOL_NAME).unwrap(); // fatal error
 		#[cfg(feature = "debug")]
 		println!("found mempool, address: {:p}", mempool.get_ptr());
@@ -142,6 +152,8 @@ impl Packetiser {
 	}
 
 	pub(crate) fn recv_from_engine_bulk(&self) -> Result<usize, MemoryError> {
+		// #[cfg(feature = "debug")]
+		// println!("recv_from_engine_bulk");
 		// calculate the space left in the queue
 		// let range = self.i_bufqueue.capacity() - self.i_bufqueue.len();
 
@@ -155,19 +167,19 @@ impl Packetiser {
 			}
 		}
 		if pkts.len() == 0 {
-			log::error!("packetiser: no buffer could be created");
-			#[cfg(feature = "debug")]
-			println!("packetiser: no buffer could be created");
+			log::error!("recv_from_engine_bulk: no buffer could be created");
 			return Err(MemoryError::new());
 		}
 		let len = pkts.len();
 
 		let count = self.channel.recv_from_engine_bulk(&mut pkts, len);
+		// #[cfg(feature = "debug")]
+		// println!("recv_from_engine_bulk: should have called channel recv");
 		if count != 0 {
 			pkts.drain(0..count)
 				.for_each(|pkt| self.i_bufqueue.push(pkt));
 			#[cfg(feature = "debug")]
-			println!("packetiser: received packets");
+			println!("recv_from_engine_bulk: received packets");
 		}
 		Ok(count)
 	}
@@ -175,6 +187,8 @@ impl Packetiser {
 	/// Send a bulk of packets to the engine
 	pub(crate) fn send_to_engine_bulk(&self) -> usize {
 		if self.o_bufqueue.is_empty() {
+			#[cfg(feature = "debug")]
+			println!("send_to_engine_bulk: out buf empty");
 			return 0;
 		}
 

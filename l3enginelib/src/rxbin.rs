@@ -18,11 +18,14 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 	let ring_pkts = TO_PACKETISER.get();
 	let len = pkts.len();
 
+	let mut cnt = 0;
+
 	for mut pkt in pkts {
 		let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
 		if !ether_hdr.is_null() {
 			let ether_type = unsafe { (*ether_hdr).ether_type };
 			if ether_type != 0 {
+				cnt += 1;
 				#[cfg(feature = "debug")]
 				println!("ether type: {}", ether_type);
 				match server.detect_arp(&pkt) {
@@ -35,11 +38,12 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 						}
 					}
 					None => {
+						ring_pkts.push(pkt);
 						if ether_type == 4 {
 							// IPv4 packet
 							#[cfg(feature = "debug")]
 							println!("ipv4 type");
-							ring_pkts.push(pkt);
+							// ring_pkts.push(pkt);
 						}
 					}
 				}
@@ -49,6 +53,10 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 		} else {
 			drop(pkt);
 		}
+	}
+	#[cfg(feature = "debug")]
+	if cnt > 0 {
+		println!("Recvd: {} pkts", cnt);
 	}
 	len
 }

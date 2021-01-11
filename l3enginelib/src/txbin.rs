@@ -29,6 +29,8 @@ pub(crate) fn send_to_packetiser() -> usize {
 	if ring_pkts.is_empty() {
 		return 0usize;
 	}
+	#[cfg(feature = "debug")]
+	println!("sending to packetiser");
 	let mut len = 0;
 	while let Some(pkt) = ring_pkts.pop() {
 		match ch.send(PROCESSOR_THREAD, pkt) {
