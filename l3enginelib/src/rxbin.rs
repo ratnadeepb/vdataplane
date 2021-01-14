@@ -27,7 +27,7 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 			if ether_type != 0 {
 				cnt += 1;
 				#[cfg(feature = "debug")]
-				println!("ether type: {}", ether_type);
+				println!("ether type: {:x}", u16::from_be(ether_type));
 				match server.detect_arp(&pkt) {
 					Some(_ip) => {
 						let mp = MEMPOOL.get();
@@ -38,12 +38,12 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 						}
 					}
 					None => {
-						ring_pkts.push(pkt);
-						if ether_type == 4 {
+						// ring_pkts.push(pkt);
+						if ether_type == 8 {
 							// IPv4 packet
 							#[cfg(feature = "debug")]
 							println!("ipv4 type");
-							// ring_pkts.push(pkt);
+							ring_pkts.push(pkt);
 						}
 					}
 				}
