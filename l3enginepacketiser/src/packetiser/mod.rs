@@ -151,7 +151,7 @@ impl Packetiser {
 		self.clientmap.remove_client(key);
 	}
 
-	pub(crate) fn recv_from_engine_bulk(&self) -> Result<usize, MemoryError> {
+	pub(crate) fn recv_from_engine_burst(&self) -> Result<usize, MemoryError> {
 		// #[cfg(feature = "debug")]
 		// println!("recv_from_engine_bulk");
 		// calculate the space left in the queue
@@ -172,7 +172,7 @@ impl Packetiser {
 		}
 		let len = pkts.len();
 
-		let count = self.channel.recv_from_engine_bulk(&mut pkts, len);
+		let count = self.channel.recv_from_engine_burst(&mut pkts, len);
 		// #[cfg(feature = "debug")]
 		// println!("recv_from_engine_bulk: should have called channel recv");
 		if count != 0 {
@@ -235,7 +235,7 @@ impl Packetiser {
 				}
 			}
 		}
-		let count = self.channel.recv_from_engine_bulk(&mut pkts, len);
+		let count = self.channel.recv_from_engine_burst(&mut pkts, len);
 		for pkt in pkts.drain(0..count) {
 			self.i_bufqueue.push(pkt);
 		}
