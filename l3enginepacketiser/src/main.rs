@@ -35,7 +35,7 @@ use zmq::Context;
 #[cfg(not(feature = "debug"))]
 pub const BURST_MAX: usize = 512;
 #[cfg(feature = "debug")]
-pub const BURST_MAX: usize = 2;
+pub const BURST_MAX: usize = 32;
 pub(crate) static TABLE: Storage<RoutingTable> = Storage::new();
 
 const PACKETISER_ZMQ_PORT: &str = "tcp://localhost:5555";
@@ -75,7 +75,7 @@ fn main() {
     handle_signal(keep_running.clone());
 
     while kr.load(Ordering::SeqCst) {
-        match proc.recv_from_engine_bulk() {
+        match proc.recv_from_engine_burst() {
             Ok(_count) =>
             {
                 #[cfg(feature = "debug")]
@@ -98,6 +98,12 @@ fn main() {
         {
             while !proc.i_bufqueue.is_empty() {
                 if let Some(mut pkt) = proc.i_bufqueue.pop() {
+                    #[cfg(feature = "debug")]
+                    {
+                        let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+                        let ether_type = unsafe { (*ether_hdr).ether_type };
+                        println!("ether type: {:x}", u16::from_be(ether_type));
+                    }
                     // check if IP
                     if let Some(ip) = proc.get_ip_hdr(&mut pkt) {
                         println!("Got ipv4 pkt from {:#?}", ip);
