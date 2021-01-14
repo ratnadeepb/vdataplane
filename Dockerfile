@@ -1,6 +1,6 @@
 # Building client container
 
-ARG DPDK_VERSION=18.05
+ARG DPDK_VERSION=19.11
 ARG OS_VER=18.04
 FROM ubuntu:${OS_VER}
 
