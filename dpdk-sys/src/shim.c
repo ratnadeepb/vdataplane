@@ -173,7 +173,8 @@ _pkt_ipv4_hdr(struct rte_mbuf *pkt)
          */
         // uint8_t version = (ipv4->version_ihl >> 4) & 0b1111;
         // if (unlikely(version != 4)) {
-        if (RTE_ETH_IS_IPV4_HDR(pkt->packet_type)) {
+        // if (RTE_ETH_IS_IPV4_HDR(pkt->packet_type)) {
+        if (eth_hdr->ether_type == 8) {
                 return ipv4;
         }
         // printf("_pkt_ipv4_hdr: not ipv4\n"); // debug
