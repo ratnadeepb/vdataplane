@@ -36,7 +36,10 @@ pub struct Ring {
 }
 
 impl Ring {
-	const NO_FLAGS: u8 = 0;
+	// const NO_FLAGS: u8 = 0;
+	const RING_F_SP_ENQ: u8 = 0x0001;
+	const RING_F_SC_DEQ: u8 = 0x0002;
+	const RING_FLAGS: u8 = Self::RING_F_SP_ENQ | Self::RING_F_SC_DEQ;
 	const RING_CAPACITY: usize = 512;
 
 	/// Return a Ring created from a pointer if the pointer is not null
@@ -72,7 +75,7 @@ impl Ring {
 				nm.as_ptr(),
 				Self::RING_CAPACITY as raw::c_uint,
 				socket_id,
-				Self::NO_FLAGS as raw::c_uint,
+				Self::RING_FLAGS as raw::c_uint,
 			)
 		}) {
 			Some(raw) => Ok(Self {
@@ -160,7 +163,7 @@ impl Ring {
 	}
 
 	/// Dequeue a single packet from the ring
-	pub fn dequeue_bulk(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
+	pub fn dequeue_burst(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
 		// get the raw pointers to the mbufs
 		#[cfg(feature = "debug")]
 		println!("dequeue_bulk");
@@ -172,7 +175,7 @@ impl Ring {
 		{
 			let cnt = unsafe {
 				// pass the raw pointers
-				dpdk_sys::_rte_ring_dequeue_bulk(
+				dpdk_sys::_rte_ring_dequeue_burst(
 					self.get_ptr(),
 					ptrs.as_ptr() as *mut *mut raw::c_void,
 					ptrs.len() as u32,
@@ -185,7 +188,7 @@ impl Ring {
 		#[cfg(not(feature = "debug"))]
 		unsafe {
 			// pass the raw pointers
-			dpdk_sys::_rte_ring_dequeue_bulk(
+			dpdk_sys::_rte_ring_dequeue_burst(
 				self.get_ptr(),
 				ptrs.as_ptr() as *mut *mut raw::c_void,
 				ptrs.len() as u32,
@@ -294,7 +297,7 @@ impl Channel {
 
 	/// Receive bulk from client
 	pub fn recv_from_client_bulk(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
-		self.client_to_engine.dequeue_bulk(pkts, rx_burst_max)
+		self.client_to_engine.dequeue_burst(pkts, rx_burst_max)
 	}
 
 	/// Send bulk to engine
@@ -303,10 +306,10 @@ impl Channel {
 	}
 
 	/// Receive bulk from engine
-	pub fn recv_from_engine_bulk(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
+	pub fn recv_from_engine_burst(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
 		#[cfg(feature = "debug")]
 		println!("recv_from_engine_bulk");
-		self.engine_to_client.dequeue_bulk(pkts, rx_burst_max)
+		self.engine_to_client.dequeue_burst(pkts, rx_burst_max)
 	}
 }
 
