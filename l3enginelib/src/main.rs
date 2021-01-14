@@ -93,7 +93,7 @@ fn rx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>, server: Server) {
 		let _rx_sz = get_external_pkts(&ports, &server);
 		#[cfg(feature = "debug")]
 		if _rx_sz > 0 {
-			println!("received: {} pkts", _rx_sz);
+			println!("received: {} pkt(s)", _rx_sz);
 		}
 		// send packets to the packetiser
 		send_to_packetiser();
@@ -109,7 +109,7 @@ fn tx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>) {
 		let _tx_sz = send_pkts_out(&ports);
 		#[cfg(feature = "debug")]
 		if _tx_sz > 0 {
-			println!("sent: {} pkts", _tx_sz);
+			println!("sent: {} pkt(s)", _tx_sz);
 		}
 	}
 }
