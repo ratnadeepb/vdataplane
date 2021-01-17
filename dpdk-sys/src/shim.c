@@ -405,7 +405,7 @@ _pkt_arp_response(struct rte_mbuf *pkt, struct rte_mempool *mp)
         return out_pkt;
 }
 
-uint8_t *_pkt_raw_pkt(struct rte_mbuf *pkt)
+uint8_t *_pkt_raw_addr(struct rte_mbuf *pkt)
 {
-        return rte_pktmbuf_mtod(pkt, uint8_t);
+        return rte_pktmbuf_mtod(pkt, uint8_t *);
 }
