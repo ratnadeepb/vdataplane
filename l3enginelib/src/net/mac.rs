@@ -7,6 +7,7 @@ use crate::apis::{Mbuf, Port};
 use std::{result::Result, fmt};
 use dpdk_sys;
 use smoltcp::wire::EthernetAddress;
+use pnet::datalink::MacAddr;
 
 pub struct MacAddr([u8; 6]);
 

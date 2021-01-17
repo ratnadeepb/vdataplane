@@ -4,11 +4,9 @@
 //! 	1. External packets from the NIC
 //! 	2. Internal packets from the packetiser
 
-use crate::{
-	Server, FROM_PACKETISER, MEMPOOL, OUT_PKTS, PROCESSOR_THREAD, PROC_CHANNEL, TO_PACKETISER,
-};
+use crate::{FROM_PACKETISER, MEMPOOL, OUT_PKTS, PROCESSOR_THREAD, PROC_CHANNEL, TO_PACKETISER};
 use crossbeam_queue::SegQueue;
-use l3enginelib::apis::{Mbuf, Mempool, Port};
+use l3enginelib::{apis::{Mbuf, Mempool, Port}, server::Server};
 use state::Storage;
 
 pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {

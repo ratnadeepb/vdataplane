@@ -14,6 +14,6 @@ sudo docker run \
 	--device=/dev/hugepages:/dev/hugepages \
 	--device=/dev/uio0:/dev/uio0 \
 	-v "{RTE_SDK}":"{RTE_SDK}" \
-	--network=host \
+	--network bridge \ # for the sidecar to talk to the containerised application
 	--name sidecar \
 	ratnadeepb/L7proxy

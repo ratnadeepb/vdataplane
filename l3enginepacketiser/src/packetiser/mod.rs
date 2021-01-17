@@ -27,14 +27,13 @@ use l3enginelib::{
 	apis::{eal_init, Channel, Mbuf, MemoryError, Mempool, RingClientMap, RingClientMapError},
 	net::Ipv4Hdr,
 };
-use smoltcp::wire::Ipv4Address;
-use std::result::Result;
+use std::{net::Ipv4Addr, result::Result};
 
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
 
 pub(crate) struct RoutingTable {
-	ip_id_map: CHashMap<Ipv4Address, u16>,
-	id_ip_map: CHashMap<u16, Ipv4Address>,
+	ip_id_map: CHashMap<Ipv4Addr, u16>,
+	id_ip_map: CHashMap<u16, Ipv4Addr>,
 }
 
 impl RoutingTable {
@@ -45,7 +44,7 @@ impl RoutingTable {
 		}
 	}
 
-	pub(crate) fn add_client(&self, client_id: u16, client_ip: Ipv4Address) {
+	pub(crate) fn add_client(&self, client_id: u16, client_ip: Ipv4Addr) {
 		self.ip_id_map.insert(client_ip, client_id);
 		self.id_ip_map.insert(client_id, client_ip);
 	}
@@ -54,11 +53,11 @@ impl RoutingTable {
 		self.id_ip_map.remove(&client_id);
 	}
 
-	pub fn remove_by_ip(&self, client_ip: Ipv4Address) {
+	pub fn remove_by_ip(&self, client_ip: Ipv4Addr) {
 		self.ip_id_map.remove(&client_ip);
 	}
 
-	pub(crate) fn lookup_by_ip(&self, client_ip: Ipv4Address) -> bool {
+	pub(crate) fn lookup_by_ip(&self, client_ip: Ipv4Addr) -> bool {
 		self.ip_id_map.contains_key(&client_ip)
 	}
 
@@ -66,7 +65,7 @@ impl RoutingTable {
 		self.id_ip_map.contains_key(&client_id)
 	}
 
-	pub(crate) fn id_from_ip(&self, client_ip: Ipv4Address) -> u16 {
+	pub(crate) fn id_from_ip(&self, client_ip: Ipv4Addr) -> u16 {
 		match self.ip_id_map.get(&client_ip) {
 			Some(rg) => *rg,
 			None => 0,
@@ -298,17 +297,17 @@ impl Packetiser {
 		Ok(())
 	}
 
-	fn u32_to_ipaddr(&self, ip: u32) -> Ipv4Address {
-		Ipv4Address::from_bytes(&[
+	fn u32_to_ipaddr(&self, ip: u32) -> Ipv4Addr {
+		Ipv4Addr::new(
 			((ip >> 24) & 0xFF) as u8,
 			((ip >> 16) & 0xFF) as u8,
 			((ip >> 8) & 0xFF) as u8,
 			(ip & 0xFF) as u8,
-		])
+		)
 	}
 
 	/// Get the header of an IPv4 packet
-	pub fn get_ip_hdr(&self, buf: &mut Mbuf) -> Option<Ipv4Address> {
+	pub fn get_ip_hdr(&self, buf: &mut Mbuf) -> Option<Ipv4Addr> {
 		let ipv4_hdr = unsafe { dpdk_sys::_pkt_ipv4_hdr(buf.get_ptr()) };
 		#[cfg(feature = "debug")]
 		println!("in get_ip_hdr");

@@ -3,75 +3,147 @@
  * Created by Ratnadeep Bhattacharya
  */
 
-use std::{collections::HashMap, fmt, os::raw::c_char};
+use std::{fmt, slice};
 
-use crate::apis::{Mbuf, Mempool, WrappedCString};
-use smoltcp::wire::{EthernetAddress, Ipv4Address};
+use crate::apis::{Mbuf, Mempool};
+use pnet::{
+	datalink::{MacAddr, NetworkInterface},
+	ipnetwork::IpNetwork,
+	packet::{
+		arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket},
+		ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket},
+		MutablePacket, Packet,
+	},
+};
+use std::net::Ipv4Addr;
 
 pub struct Server {
-	sockets: HashMap<Ipv4Address, Vec<EthernetAddress>>,
+	interfaces: Vec<NetworkInterface>,
 }
 
 impl Server {
 	/// Create a new server
 	pub fn new() -> Self {
 		Self {
-			sockets: HashMap::new(),
+			interfaces: Vec::new(),
 		}
 	}
 
 	/// Add a new (ip, mac) socket to the server
-	pub fn add(&mut self, ip: Ipv4Address, mac: EthernetAddress) {
-		self.sockets.insert(ip, [mac].to_vec());
+	pub fn add(
+		&mut self,
+		name: &str,
+		desc: &str,
+		index: u32,
+		mac: Option<MacAddr>,
+		ips: Vec<IpNetwork>,
+		flags: u32,
+	) {
+		let iface = NetworkInterface {
+			name: String::from(name),
+			description: String::from(desc),
+			index,
+			mac,
+			ips,
+			flags,
+		};
+		self.interfaces.push(iface);
 	}
 
-	/// Add another mac to the same IP
-	pub fn add_mac_to_ip(&mut self, ip: Ipv4Address, mac: EthernetAddress) {
-		if self.sockets.contains_key(&ip) {
-			self.sockets.entry(ip).and_modify(|val| val.push(mac));
-		}
-	}
-
-	/// Add multiple macs to the same IP
-	pub fn add_macs(&mut self, ip: Ipv4Address, mac: Vec<EthernetAddress>) {
-		self.sockets.insert(ip, mac);
-	}
-
-	/// Convert IP address to u32
-	pub fn ipaddr_to_u32(ip: &Ipv4Address) -> u32 {
-		let mut ip_addr = Box::new(0u32); // ensure memory allocation is in heap
-		let ip_str = WrappedCString::to_cstring(format!("{}", ip)).unwrap();
-
-		unsafe {
-			dpdk_sys::_pkt_parse_ip(ip_str.as_ptr() as *mut c_char, &mut *ip_addr);
-		}
-		*ip_addr
-	}
-
-	/// Detect if a packet is an ARP Request
-	pub fn detect_arp(&self, buf: &Mbuf) -> Option<Ipv4Address> {
-		for key in self.sockets.keys() {
-			let sip = Self::ipaddr_to_u32(key);
-			unsafe {
-				match dpdk_sys::_pkt_detect_arp(buf.get_ptr(), sip) {
-					1 => return Some(*key),
-					_ => {}
+	/// Get interface by IP
+	fn get_iface_by_ip(&self, mip: &Ipv4Addr) -> Option<NetworkInterface> {
+		for iface in &self.interfaces {
+			for ip_nw in &iface.ips {
+				match ip_nw {
+					IpNetwork::V4(ip) => {
+						if &ip.ip() == mip {
+							return Some(iface.clone());
+						}
+					}
+					IpNetwork::V6(_) => return None,
 				}
 			}
 		}
 		None
 	}
 
-	/// Generate an ARP Request if an incoming packet is an ARP Request meant for us
-	pub fn send_arp_reply(&self, buf: &mut Mbuf, mp: &Mempool) -> Option<Mbuf> {
-		match self.detect_arp(buf) {
-			Some(_ip) => unsafe {
-				Some(Mbuf::from_ptr(dpdk_sys::_pkt_arp_response(
-					buf.get_ptr(),
-					mp.get_ptr(),
-				)))
+	/// Convert IP address to u32
+	pub fn ipaddr_to_u32(ip: &Ipv4Addr) -> u32 {
+		let p = ip.octets();
+		(((p[0] & 0xFF) as u32) << 24)
+			| (((p[1] & 0xFF) as u32) << 16)
+			| (((p[2] & 0xFF) as u32) << 8)
+			| ((p[1] & 0xFF) as u32)
+	}
+
+	/// Detect if a packet is an ARP Request
+	/// Return Some((local_ip, remote_ip))
+	/// look at `man netdev` for the meaning of flags
+	pub fn detect_arp(&self, buf: &Mbuf) -> Option<(Ipv4Addr, Ipv4Addr)> {
+		let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.get_ptr()) };
+		let len = buf.data_len();
+		let mut eth_buf = unsafe { slice::from_raw_parts(pkt, len) };
+
+		match EthernetPacket::new(&mut eth_buf) {
+			Some(eth_pkt) => match eth_pkt.get_ethertype() {
+				EtherTypes::Arp => {
+					for iface in &self.interfaces {
+						for ip_nw in &iface.ips {
+							match ip_nw {
+								IpNetwork::V4(ip) => {
+									let local_ip = ip.ip();
+									let arp = ArpPacket::new(eth_pkt.payload())?;
+									let tip = arp.get_target_proto_addr();
+									let remote_ip = arp.get_sender_proto_addr();
+									if tip == local_ip {
+										#[cfg(feature = "debug")]
+										println!(
+											"local and remote IP: {:#?}->{:#?}",
+											local_ip, remote_ip
+										);
+										return Some((local_ip, remote_ip));
+									}
+								}
+								IpNetwork::V6(_) => return None,
+							}
+						}
+					}
+					return None;
+				}
+				_ => return None,
 			},
 			None => None,
+		}
+	}
+
+	/// Generate an ARP Request if an incoming packet is an ARP Request meant for us
+	pub fn send_arp_reply(&self, buf: &Mbuf, mp: &Mempool) -> Option<Mbuf> {
+		let (local_ip, remote_ip) = self.detect_arp(buf)?;
+		let mut eth_buf = [0u8; 42];
+		let mut eth_pkt = MutableEthernetPacket::new(&mut eth_buf)?;
+		let iface = self.get_iface_by_ip(&local_ip)?;
+		let source_mac = iface.mac?;
+		eth_pkt.set_destination(MacAddr::broadcast());
+		eth_pkt.set_source(source_mac);
+		eth_pkt.set_ethertype(EtherTypes::Arp);
+
+		let mut arp_buffer = [0u8; 28];
+		let mut arp_packet = MutableArpPacket::new(&mut arp_buffer)?;
+		arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
+		arp_packet.set_protocol_type(EtherTypes::Ipv4);
+		arp_packet.set_hw_addr_len(6);
+		arp_packet.set_proto_addr_len(4);
+		arp_packet.set_operation(ArpOperations::Request);
+		arp_packet.set_sender_hw_addr(source_mac);
+		arp_packet.set_sender_proto_addr(local_ip);
+		arp_packet.set_target_hw_addr(MacAddr::zero());
+		arp_packet.set_target_proto_addr(remote_ip);
+
+		eth_pkt.set_payload(arp_packet.packet_mut());
+
+		match Mbuf::from_bytes(eth_pkt.packet(), mp) {
+			Ok(out_buf) => Some(out_buf),
+			Err(_) => None,
 		}
 	}
 
@@ -130,6 +202,6 @@ impl Server {
 
 impl fmt::Debug for Server {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct(&format!("{:?}", self.sockets)).finish()
+		f.debug_struct(&format!("{:#?}", self.interfaces)).finish()
 	}
 }

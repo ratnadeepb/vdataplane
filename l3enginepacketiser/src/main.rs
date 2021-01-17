@@ -15,6 +15,7 @@
 // )]
 // #![allow(clippy::type_complexity)]
 
+mod net;
 mod packetiser;
 
 use ctrlc;
@@ -94,34 +95,34 @@ fn main() {
             }
         }
 
-        #[cfg(feature = "debug")]
-        {
-            while !proc.i_bufqueue.is_empty() {
-                if let Some(mut pkt) = proc.i_bufqueue.pop() {
-                    #[cfg(feature = "debug")]
-                    {
-                        let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
-                        let ether_type = unsafe { (*ether_hdr).ether_type };
-                        println!("ether type: {:x}", u16::from_be(ether_type));
-                    }
-                    // check if IP
-                    if let Some(ip) = proc.get_ip_hdr(&mut pkt) {
-                        println!("Got ipv4 pkt from {:#?}", ip);
-                    } else {
-                        println!("Not an ipv4 pkt");
-                    }
-                    proc.o_bufqueue.push(pkt);
-                }
-            }
-            // println!("after while !proc.i_bufqueue.is_empty() loop");
+        // #[cfg(feature = "debug")]
+        // {
+        //     while !proc.i_bufqueue.is_empty() {
+        //         if let Some(mut pkt) = proc.i_bufqueue.pop() {
+        //             #[cfg(feature = "debug")]
+        //             {
+        //                 let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
+        //                 let ether_type = unsafe { (*ether_hdr).ether_type };
+        //                 println!("ether type: {:x}", u16::from_be(ether_type));
+        //             }
+        //             // check if IP
+        //             if let Some(ip) = proc.get_ip_hdr(&mut pkt) {
+        //                 println!("Got ipv4 pkt from {:#?}", ip);
+        //             } else {
+        //                 println!("Not an ipv4 pkt");
+        //             }
+        //             proc.o_bufqueue.push(pkt);
+        //         }
+        //     }
+        //     // println!("after while !proc.i_bufqueue.is_empty() loop");
 
-            match proc.send_outgoing_packets() {
-                Ok(_) => {
-                    // #[cfg(feature = "debug")]
-                    // println!("sent packets back to engine");
-                }
-                Err(e) => log::error!("Error receiving from engine: {}", e),
-            }
-        }
+        //     match proc.send_outgoing_packets() {
+        //         Ok(_) => {
+        //             // #[cfg(feature = "debug")]
+        //             // println!("sent packets back to engine");
+        //         }
+        //         Err(e) => log::error!("Error receiving from engine: {}", e),
+        //     }
+        // }
     }
 }
