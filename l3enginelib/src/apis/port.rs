@@ -6,7 +6,7 @@
 #![allow(dead_code)]
 
 // use crate::net::MacAddr;
-use pnet::datalink::MacAddr;
+// use pnet::datalink::MacAddr;
 use std::marker::{Send, Sync};
 
 use super::{Mbuf, Mempool, PortError};
@@ -150,23 +150,23 @@ impl Port {
 	}
 
 	/// Get mac address for port
-	pub fn mac_addr(&self) -> Result<MacAddr, PortError> {
-		unsafe {
-			let mac = dpdk_sys::rte_ether_addr::default();
-			match dpdk_sys::rte_eth_macaddr_get(self.id, &mac as *const _ as *mut _) {
-				// 0 => Ok(MacAddr::from_ether_addr(mac)),
-				0 => Ok(MacAddr::new(
-					mac.addr_bytes[0],
-					mac.addr_bytes[1],
-					mac.addr_bytes[2],
-					mac.addr_bytes[3],
-					mac.addr_bytes[4],
-					mac.addr_bytes[5],
-				)),
-				_ => Err(PortError::new()),
-			}
-		}
-	}
+	// pub fn mac_addr(&self) -> Result<MacAddr, PortError> {
+	// 	unsafe {
+	// 		let mac = dpdk_sys::rte_ether_addr::default();
+	// 		match dpdk_sys::rte_eth_macaddr_get(self.id, &mac as *const _ as *mut _) {
+	// 			// 0 => Ok(MacAddr::from_ether_addr(mac)),
+	// 			0 => Ok(MacAddr::new(
+	// 				mac.addr_bytes[0],
+	// 				mac.addr_bytes[1],
+	// 				mac.addr_bytes[2],
+	// 				mac.addr_bytes[3],
+	// 				mac.addr_bytes[4],
+	// 				mac.addr_bytes[5],
+	// 			)),
+	// 			_ => Err(PortError::new()),
+	// 		}
+	// 	}
+	// }
 
 	pub fn receive(&self, queue_id: u16) -> Vec<Mbuf> {
 		const RX_BURST_MAX: usize = 32;

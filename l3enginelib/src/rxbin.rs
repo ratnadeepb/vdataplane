@@ -6,10 +6,10 @@
 
 use crate::{FROM_PACKETISER, MEMPOOL, OUT_PKTS, PROCESSOR_THREAD, PROC_CHANNEL, TO_PACKETISER};
 use crossbeam_queue::SegQueue;
-use l3enginelib::{apis::{Mbuf, Mempool, Port}, server::Server};
+use l3enginelib::apis::{Mbuf, Mempool, Port};
 use state::Storage;
 
-pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
+pub(crate) fn get_external_pkts(ports: &Vec<Port>) -> usize {
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
 	let pkts = ports[0].receive(queue_id);
 	let out_pkts = OUT_PKTS.get();
@@ -18,33 +18,34 @@ pub(crate) fn get_external_pkts(ports: &Vec<Port>, server: &Server) -> usize {
 
 	let mut cnt = 0;
 
-	for mut pkt in pkts {
+	for pkt in pkts {
 		let ether_hdr = unsafe { dpdk_sys::_pkt_ether_hdr(pkt.get_ptr()) };
 		if !ether_hdr.is_null() {
 			let ether_type = unsafe { (*ether_hdr).ether_type };
 			if ether_type != 0 {
 				cnt += 1;
+				ring_pkts.push(pkt);
 				#[cfg(feature = "debug")]
 				println!("ether type: {:x}", u16::from_be(ether_type));
-				match server.detect_arp(&pkt) {
-					Some(_ip) => {
-						let mp = MEMPOOL.get();
-						if let Some(out_arp) = server.send_arp_reply(&mut pkt, mp) {
-							#[cfg(feature = "debug")]
-							println!("arp type");
-							out_pkts.push(out_arp);
-						}
-					}
-					None => {
-						// ring_pkts.push(pkt);
-						if ether_type == 8 {
-							// IPv4 packet
-							#[cfg(feature = "debug")]
-							println!("ipv4 type");
-							ring_pkts.push(pkt);
-						}
-					}
-				}
+			// match server.detect_arp(&pkt) {
+			// 	Some(_ip) => {
+			// 		let mp = MEMPOOL.get();
+			// 		if let Some(out_arp) = server.send_arp_reply(&mut pkt, mp) {
+			// 			#[cfg(feature = "debug")]
+			// 			println!("arp type");
+			// 			out_pkts.push(out_arp);
+			// 		}
+			// 	}
+			// 	None => {
+			// 		// ring_pkts.push(pkt);
+			// 		if ether_type == 8 {
+			// 			// IPv4 packet
+			// 			#[cfg(feature = "debug")]
+			// 			println!("ipv4 type");
+			// 			ring_pkts.push(pkt);
+			// 		}
+			// 	}
+			// }
 			} else {
 				drop(pkt);
 			}

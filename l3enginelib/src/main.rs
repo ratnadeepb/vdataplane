@@ -20,20 +20,17 @@ mod rxbin;
 mod txbin;
 
 use crossbeam_queue::SegQueue;
-use l3enginelib::{
-	apis::{eal_cleanup, eal_init, Mbuf, Mempool, Memzone, Port, RingClientMap},
-	server::Server,
-};
+use l3enginelib::apis::{eal_cleanup, eal_init, Mbuf, Mempool, Memzone, Port, RingClientMap};
 use libc::{IFF_BROADCAST, IFF_ECHO, IFF_PROMISC, IFF_UP};
 use log;
-use pnet::ipnetwork::{IpNetwork, Ipv4Network};
+// use pnet::ipnetwork::{IpNetwork, Ipv4Network};
 use rxbin::{get_external_pkts, get_from_packetiser};
 // use smoltcp::wire::Ipv4Address;
 use state::Storage;
 use std::{
 	cell::Cell,
 	mem,
-	net::Ipv4Addr,
+	// net::Ipv4Addr,
 	ptr::NonNull,
 	sync::mpsc::{sync_channel, Receiver, SyncSender, TryRecvError},
 	sync::{
@@ -83,16 +80,16 @@ fn handle_signal(kr: Arc<AtomicBool>) {
 	.expect("Error setting Ctrl-C handler");
 }
 
-pub fn print_mac_addrs(ports: &Vec<Port>) {
-	for port in ports {
-		println!("Port {}: {:?}", port.id, port.mac_addr().unwrap());
-	}
-}
+// pub fn print_mac_addrs(ports: &Vec<Port>) {
+// 	for port in ports {
+// 		println!("Port {}: {:?}", port.id, port.mac_addr().unwrap());
+// 	}
+// }
 
-fn rx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>, server: Server) {
+fn rx_thread_main(kr: Arc<AtomicBool>, ports: Vec<Port>) {
 	while kr.load(Ordering::SeqCst) {
 		// get packets from outside
-		let _rx_sz = get_external_pkts(&ports, &server);
+		let _rx_sz = get_external_pkts(&ports);
 		#[cfg(feature = "debug")]
 		if _rx_sz > 0 {
 			println!("received: {} pkt(s)", _rx_sz);
@@ -177,25 +174,25 @@ fn main() {
 	#[cfg(feature = "debug")]
 	{
 		println!("ports set");
-		print_mac_addrs(&ports);
+		// print_mac_addrs(&ports);
 	}
 
-	let mut server = Server::new();
-	let ip_addr1 = Ipv4Addr::new(10, 10, 1, 1);
-	let prefix = 24;
-	let ip_nw1 = Ipv4Network::new(ip_addr1, prefix).unwrap();
+	// let mut server = Server::new();
+	// let ip_addr1 = Ipv4Addr::new(10, 10, 1, 1);
+	// let prefix = 24;
+	// let ip_nw1 = Ipv4Network::new(ip_addr1, prefix).unwrap();
 	// let ip_addr2 = Ipv4Address::new(10, 10, 1, 2);
-	let mac1 = ports[0].mac_addr().unwrap();
+	// let mac1 = ports[0].mac_addr().unwrap();
 	// let mac1 = ports[0].mac_addr().unwrap().to_ethernetaddr();
 	// let mac2 = ports[1].mac_addr().unwrap().to_ethernetaddr();
-	server.add(
-		"iface1",
-		"test interface",
-		0,
-		Some(mac1),
-		vec![IpNetwork::V4(ip_nw1)],
-		(IFF_UP | IFF_BROADCAST | IFF_PROMISC | IFF_ECHO) as u32,
-	);
+	// server.add(
+	// 	"iface1",
+	// 	"test interface",
+	// 	0,
+	// 	Some(mac1),
+	// 	vec![IpNetwork::V4(ip_nw1)],
+	// 	(IFF_UP | IFF_BROADCAST | IFF_PROMISC | IFF_ECHO) as u32,
+	// );
 	// server.add(ip_addr1, mac1);
 	// server.add(ip_addr2, mac2);
 	// let macs = [ports[0].mac_addr().unwrap().to_ethernetaddr(),
@@ -247,7 +244,7 @@ fn main() {
 	// secondary has started up; start processing packets
 	while kr.load(Ordering::SeqCst) {
 		// get packets from outside
-		let _rx_sz = get_external_pkts(&ports, &server);
+		let _rx_sz = get_external_pkts(&ports);
 		#[cfg(feature = "debug")]
 		if _rx_sz > 0 {
 			println!("received: {} pkts", _rx_sz);
