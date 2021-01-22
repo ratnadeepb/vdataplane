@@ -1,7 +1,7 @@
 //! Create an emulated device
 //!
 //! This will create a single device on the packetiser process
-//! irrespective of how many actual network cards are available in the system
+//! ideally for all network cards in the system
 
 use std::collections::BTreeMap;
 
