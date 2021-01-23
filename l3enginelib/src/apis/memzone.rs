@@ -32,7 +32,7 @@ impl Memzone {
 	}
 
 	pub fn virt_addr(&self) -> u64 {
-		unsafe { (*self.raw).__bindgen_anon_2.addr_64 }
+		unsafe { (*self.raw).__bindgen_anon_1.addr_64 }
 	}
 }
 

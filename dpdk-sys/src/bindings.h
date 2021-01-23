@@ -125,7 +125,7 @@ struct rte_icmp_hdr *_pkt_icmp_hdr(struct rte_mbuf *pkt);
 uint16_t _pkt_icmp_checksum(uint16_t checksum);
 
 /* Get the ARP header from the packet */
-struct rte_arp_hdr *_pkt_arp_hdr(struct rte_mbuf *pkt);
+// struct rte_arp_hdr *_pkt_arp_hdr(struct rte_mbuf *pkt);
 
 /* Copy Ether Address from source dest */
 void _rte_ether_addr_copy(const struct rte_ether_addr *__restrict ea_from, struct rte_ether_addr *__restrict ea_to);
