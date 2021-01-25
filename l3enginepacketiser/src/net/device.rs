@@ -5,8 +5,6 @@
 
 use std::collections::BTreeMap;
 
-const MTU: usize = 1536;
-
 use smoltcp::{
 	iface::{EthernetInterface, EthernetInterfaceBuilder, NeighborCache},
 	phy::{Device, DeviceCapabilities, RxToken, TxToken},
@@ -23,10 +21,12 @@ pub(crate) struct EthDevEmulator {
 }
 
 impl EthDevEmulator {
+	const MTU: usize = 1536;
+
 	pub(crate) fn new() -> Self {
 		Self {
-			incoming: Vec::with_capacity(MTU),
-			outgoing: Vec::with_capacity(MTU),
+			incoming: Vec::with_capacity(Self::MTU),
+			outgoing: Vec::with_capacity(Self::MTU),
 		}
 	}
 }
@@ -70,7 +70,7 @@ impl<'a> Device<'a> for EthDevEmulator {
 
 	fn capabilities(&self) -> DeviceCapabilities {
 		let mut caps = DeviceCapabilities::default();
-		caps.max_transmission_unit = MTU;
+		caps.max_transmission_unit = Self::MTU;
 		caps.max_burst_size = Some(1);
 		caps
 	}
