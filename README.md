@@ -1,6 +1,6 @@
 # DPDK based central L3 Engine and Dockerized L7 Stack
 
-Design heavily influenced by Capsule module and openNetVM.
+Design heavily influenced by Capsule (Rust crate) and openNetVM.
 
 ## Known Issue
 

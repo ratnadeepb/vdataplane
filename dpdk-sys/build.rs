@@ -31,6 +31,7 @@ fn main() {
 		.default_enum_style(bindgen::EnumVariation::ModuleConsts)
 		.clang_arg("-finline-functions")
 		.clang_arg("-march=corei7")
+		.clang_arg("-mavx")
 		.rustfmt_bindings(true)
 		.generate()
 		.expect("Failed to generate bindings");
