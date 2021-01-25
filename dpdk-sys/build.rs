@@ -6,32 +6,6 @@ use std::{
 };
 
 fn main() {
-	println!("cargo:rerun-if-changed=build.rs");
-	println!("cargo:rerun-if-changed=src/bindings.h");
-	println!("cargo:rerun-if-changed=src/shim.c");
-	println!("cargo:rustc-link-search=/usr/local/lib/x86_64-linux-gnu/");
-
-	let child = Command::new("./pkg_names.sh")
-		.stdout(Stdio::piped())
-		.spawn()
-		.expect("command failed");
-	let output = child.wait_with_output().unwrap();
-
-	let mut rte_libs = Vec::new();
-
-	if output.status.success() {
-		let output = String::from_utf8_lossy(&output.stdout);
-		for out in output.split_ascii_whitespace() {
-			rte_libs.push(out.to_owned());
-		}
-	} else {
-		exit(1);
-	}
-
-	rte_libs
-		.iter()
-		.for_each(|lib| println!("cargo:rustc-link-lib=dylib={}", lib));
-
 	cc::Build::new()
 		.file("src/shim.c")
 		.flag("-march=corei7")
@@ -65,4 +39,30 @@ fn main() {
 	bindings
 		.write_to_file(out_path.join("bindings.rs"))
 		.expect("Failed to write bindings");
+
+	let child = Command::new("./pkg_names.sh")
+		.stdout(Stdio::piped())
+		.spawn()
+		.expect("command failed");
+	let output = child.wait_with_output().unwrap();
+
+	let mut rte_libs = Vec::new();
+
+	if output.status.success() {
+		let output = String::from_utf8_lossy(&output.stdout);
+		for out in output.split_ascii_whitespace() {
+			rte_libs.push(out.to_owned());
+		}
+	} else {
+		exit(1);
+	}
+
+	rte_libs
+		.iter()
+		.for_each(|lib| println!("cargo:rustc-link-lib=dylib={}", lib));
+
+	println!("cargo:rerun-if-changed=build.rs");
+	println!("cargo:rerun-if-changed=src/bindings.h");
+	println!("cargo:rerun-if-changed=src/shim.c");
+	println!("cargo:rustc-link-search=/usr/local/lib/x86_64-linux-gnu/");
 }
