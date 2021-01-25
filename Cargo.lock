@@ -246,6 +246,7 @@ dependencies = [
 name = "l3enginepacketiser"
 version = "0.1.0"
 dependencies = [
+ "byteorder",
  "chashmap",
  "crossbeam-queue",
  "ctrlc",
