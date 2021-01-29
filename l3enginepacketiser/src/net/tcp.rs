@@ -1,5 +1,6 @@
 //! Implements the support for TCP at the packetiser
 
+use ctrlc::set_handler;
 use smoltcp::{
 	iface::EthernetInterface,
 	socket::{
@@ -8,7 +9,13 @@ use smoltcp::{
 	},
 	time::Instant,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+	collections::HashMap,
+	sync::{
+		atomic::{AtomicBool, Ordering},
+		Arc,
+	},
+};
 
 use crate::send_icmp_ping;
 
@@ -73,32 +80,26 @@ impl<'a> SockSet<'a> {
 	}
 
 	pub(crate) fn process_pkts(&mut self) {
-		loop {
-			let timestamp = Instant::now();
-			// let sock_set = *self.sock_set.clone();
-			match self.iface.poll(&mut self.sock_set, timestamp) {
-				Ok(_) => {}
-				Err(e) => log::error!("poll error: {}", e),
+		let timestamp = Instant::now();
+		// let sock_set = *self.sock_set.clone();
+		match self.iface.poll(&mut self.sock_set, timestamp) {
+			Ok(_) => {}
+			Err(e) => log::error!("poll error: {}", e),
+		}
+		{
+			let _timestamp = Instant::now();
+			{
+				let mut icmp_sock = self.sock_set.get::<IcmpSocket>(self.icmp_handle);
+				if !icmp_sock.is_open() {
+					icmp_sock
+						.bind(IcmpEndpoint::Ident(IcmpSock::IDENT))
+						.unwrap();
+				}
+				// TODO: hand over to icmp processing
 			}
 			{
-				let _timestamp = Instant::now();
-				{
-					let mut icmp_sock = self.sock_set.get::<IcmpSocket>(self.icmp_handle);
-					#[cfg(feature = "debug")]
-					println!("got icmp socket");
-					if !icmp_sock.is_open() {
-						icmp_sock
-							.bind(IcmpEndpoint::Ident(IcmpSock::IDENT))
-							.unwrap();
-					}
-					// TODO: hand over to icmp processing
-				}
-				{
-					let mut _tcp_sock = self.sock_set.get::<TcpSocket>(self.tcp_handle);
-					#[cfg(feature = "debug")]
-					println!("got tcp socket");
-					// TODO: hand over to tcp processing}
-				}
+				let mut _tcp_sock = self.sock_set.get::<TcpSocket>(self.tcp_handle);
+				// TODO: hand over to tcp processing}
 			}
 		}
 	}

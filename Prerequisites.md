@@ -37,7 +37,6 @@ exit
 ### Otherwise
 ```bash
 sudo vim /etc/sysctl.conf # Add "vm.nr_hugepages=2048" at the end of the file
-sudo sysctl.conf
 sudo sysctl -e -p
 ```
 

@@ -3,9 +3,9 @@
  * Created by Ratnadeep Bhattacharya
  */
 
+use super::{MemoryError, WrappedCString};
 use dpdk_sys;
 use std::result::Result;
-use super::{MemoryError, WrappedCString};
 
 pub struct Memzone {
 	raw: *const dpdk_sys::rte_memzone,
@@ -14,8 +14,14 @@ pub struct Memzone {
 impl Memzone {
 	pub fn new(name: &str, len: usize) -> Result<Self, MemoryError> {
 		let nm = WrappedCString::to_cstring(name)?;
-		let raw = unsafe { dpdk_sys::rte_memzone_reserve(nm.as_ptr(), len as u64, dpdk_sys::rte_socket_id() as i32, dpdk_sys::RTE_MEMZONE_2MB)};
-		
+		let raw = unsafe {
+			dpdk_sys::rte_memzone_reserve(
+				nm.as_ptr(),
+				len as u64,
+				dpdk_sys::rte_socket_id() as i32,
+				dpdk_sys::RTE_MEMZONE_2MB,
+			)
+		};
 		if raw.is_null() {
 			return Err(MemoryError::new());
 		}
@@ -32,14 +38,15 @@ impl Memzone {
 	}
 
 	pub fn virt_addr(&self) -> u64 {
-		unsafe { (*self.raw).__bindgen_anon_1.addr_64 }
+		// unsafe { (*self.raw).__bindgen_anon_1.addr_64 }
+		unsafe { (*self.raw).__bindgen_anon_2.addr_64 }
 	}
 }
 
 impl Drop for Memzone {
 	fn drop(&mut self) {
-		match unsafe { dpdk_sys::rte_memzone_free(self.raw)} {
-			0 => {},
+		match unsafe { dpdk_sys::rte_memzone_free(self.raw) } {
+			0 => {}
 			_ => log::error!("resource release failed; invalid memzone"),
 		}
 	}

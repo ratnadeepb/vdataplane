@@ -18,6 +18,7 @@ doctest = false
 bindgen = "0.56.0"
 cc = "1.0"
 libc = "0.2"
+pkg-config = "0.3.19"
 
 [features]
 rustdoc = []

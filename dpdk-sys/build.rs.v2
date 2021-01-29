@@ -1,0 +1,83 @@
+use bindgen::Builder;
+use pkg_config;
+use std::{
+	env,
+	path::PathBuf,
+	// process::{exit, Command, Stdio},
+};
+
+fn main() {
+	cc::Build::new()
+		.file("src/shim.c")
+		.flag("-march=corei7")
+		.flag("-mavx")
+		.compile("rte_shim");
+
+	let bindings = Builder::default()
+		.clang_arg("-I${RTE_SDK}/build/lib")
+		.header("src/bindings.h")
+		.layout_tests(false)
+		.generate_inline_functions(true)
+		.parse_callbacks(Box::new(bindgen::CargoCallbacks))
+		.opaque_type(r"rte_arp_ipv4|rte_arp_hdr")
+		.whitelist_type(r"(rte|eth|pcap)_.*")
+		.whitelist_function(r"(_rte|rte|_pkt|eth|numa|pcap|memif)_.*")
+		.whitelist_var(r"(RTE|DEV|ETH|MEMPOOL|PKT|rte|memif)_.*")
+		.derive_copy(true)
+		.derive_debug(true)
+		.derive_default(true)
+		.derive_partialeq(true)
+		.default_enum_style(bindgen::EnumVariation::ModuleConsts)
+		.clang_arg("-finline-functions")
+		.clang_arg("-march=corei7")
+		.clang_arg("-mavx")
+		.rustfmt_bindings(true)
+		.generate()
+		.expect("Failed to generate bindings");
+
+	let out_path = PathBuf::from(env::var("OUT_DIR").unwrap());
+	bindings
+		.write_to_file(out_path.join("bindings.rs"))
+		.expect("Failed to write bindings");
+
+	// let child = Command::new("./pkg_names.py")
+	// 	.stdout(Stdio::piped())
+	// 	.spawn()
+	// 	.expect("command failed");
+	// let output = child.wait_with_output().unwrap();
+
+	// let mut rte_libs = Vec::new();
+
+	// if output.status.success() {
+	// 	let output = String::from_utf8_lossy(&output.stdout);
+	// 	let mut iter = output.split_ascii_whitespace();
+	// 	loop {
+	// 		if let Some(out) = iter.next() {
+	// 			let out = out.trim_matches(|c| c == '{' || c == '}' || c == '\'' || c == ',');
+	// 			rte_libs.push(out.to_owned());
+	// 		} else {
+	// 			break;
+	// 		}
+	// 	}
+	// } else {
+	// 	exit(1);
+	// }
+
+	// rte_libs
+	// 	.iter()
+	// 	.for_each(|lib| println!("cargo:rustc-link-lib=dylib={}", lib));
+	pkg_config::Config::new().probe("libdpdk-libs").unwrap();
+	pkg_config::Config::new().probe("libdpdk").unwrap();
+	println!("cargo:rustc-link-lib=dylib=numa");
+
+	// RTE_CORE_LIBS
+	// 	.iter()
+	// 	.chain(RTE_PMD_LIBS)
+	// 	.chain(RTE_DEPS_LIBS)
+	// 	.for_each(|lib| println!("cargo:rustc-link-lib=dylib={}", lib));
+
+	println!("cargo:rerun-if-changed=build.rs");
+	println!("cargo:rerun-if-changed=src/bindings.h");
+	println!("cargo:rerun-if-changed=src/shim.c");
+	println!("cargo:rustc-link-search=/usr/local/lib/x86_64-linux-gnu/");
+}

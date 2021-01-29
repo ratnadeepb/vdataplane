@@ -19,6 +19,7 @@ mod net;
 mod packetiser;
 
 use ctrlc;
+use net::{EthDevEmulator, IfaceEmulator, SockSet};
 use std::{
     process::exit,
     sync::{
@@ -75,7 +76,16 @@ fn main() {
     let kr = keep_running.clone();
     handle_signal(keep_running.clone());
 
+    // create device
+    let mac = [0x90, 0xe2, 0xba, 0xb2, 0x98, 0x48];
+    let addr = [10, 10, 1, 1];
+    let prefix = 24;
+    let mut sockets = SockSet::new(mac, addr, prefix);
+    #[cfg(feature = "debug")]
+    println!("packetiser: sockets created");
+
     while kr.load(Ordering::SeqCst) {
+        sockets.process_pkts();
         match proc.recv_from_engine_burst() {
             Ok(_count) =>
             {

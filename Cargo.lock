@@ -177,6 +177,7 @@ dependencies = [
  "bindgen",
  "cc",
  "libc",
+ "pkg-config",
 ]
 
 [[package]]
