@@ -52,14 +52,15 @@ fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>) {
         // TODO: introduce ctrl + c
         match cons.recv() {
             Ok(buf) => {
+                // original location of Mbuf forgotten here
                 let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
                 let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
                 match dev.xmit_to_client(pkt) {
                     Ok(_) => {}
                     Err(_e) => {
-                        log::error!("Buffer full: dropping packet");
+                        log::error!("Buffer full: packet dropped");
                         #[cfg(feature = "debug")]
-                        println!("Buffer full: dropping packet");
+                        println!("Buffer full: packet dropped");
                     }
                 }
             }
@@ -83,29 +84,46 @@ fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>) {
     }
 }
 
-// fn route_pkts(local: LocalIPMac, pkt: Mbuf, mp: &Mempool) {
-// let buf = unsafe { from_raw_parts_mut(dpdk_sys::_pkt_raw_addr(pkt.get_ptr()), MTU) };
-// let tuple = match FiveTuple::parse_pkt(buf, &local, &vec![0][..]) {
-//     Ok(f) => f,
-//     Err(e) => {
-//         log::error!("Dropping packet because: {:#?}", e);
-//         return;
-//     }
-// };
-// if tuple.ethertype() == FiveTuple::ETHERTYPE_ARP {
-//     tuple.handle_arp(local, mp);
-// }
-// // NOTE: Service name is hardcoded for now
-// let srvc = "dummy";
-// if let Some(sender) = service_map.get(&srvc) {}
-// }
+fn route_pkts(
+    service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>>,
+    local: LocalIPMac,
+    pkt: Mbuf,
+    mux: Arc<Mux>,
+) {
+    let buf = unsafe { from_raw_parts_mut(dpdk_sys::_pkt_raw_addr(pkt.get_ptr()), MTU) };
+    let tuple = match FiveTuple::parse_pkt(buf, &local, &vec![0][..]) {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("Dropping packet because: {:#?}", e);
+            return;
+        }
+    };
+    if tuple.ethertype() == FiveTuple::ETHERTYPE_ARP {
+        tuple.handle_arp(local, &mux.mempool());
+    }
+    // NOTE: Service name is hardcoded for now
+    let srvc = "dummy";
+    match service_map.read() {
+        Ok(map) => {
+            // map.get(&srvc).unwrap().to_owned()
+            // TODO: remove the unwraps
+            let sender = map.get(&srvc).unwrap();
+            sender.send(pkt).unwrap();
+        }
+        Err(p_err) => {
+            let map = p_err.into_inner();
+            let sender = map.get(&srvc).unwrap();
+            sender.send(pkt).unwrap();
+        }
+    };
+}
 
 fn main() {
-    let mux = Mux::new().unwrap(); // fatal failure
+    let mux = Arc::new(Mux::new().unwrap()); // fatal failure
     #[cfg(feature = "debug")]
     println!("mux created");
-    MUX.set(mux);
-    let mux = MUX.get();
+    // MUX.set(mux);
+    // let mux = MUX.get();
     mux::start();
     #[cfg(feature = "debug")]
     println!("mux started");
@@ -119,7 +137,9 @@ fn main() {
     // let kr = keep_running.clone();
     handle_signal(keep_running.clone());
     fs::remove_file(SOCK_NAME).ok();
-    let service_map: ShardedLock<HashMap<&str, Sender<Mbuf>>> = ShardedLock::new(HashMap::new());
+    let service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>> =
+        Arc::new(ShardedLock::new(HashMap::new()));
+    let service_map_clone = service_map.clone();
     let _listener_thd = thread::scope(|s| {
         s.spawn(|_| {
             let listener = UnixListener::bind(SOCK_NAME).unwrap();
@@ -127,7 +147,7 @@ fn main() {
                 match stream {
                     Ok(stream) => {
                         let (send, recv) = bounded(BURST_SZ);
-                        let l = match service_map.write() {
+                        let l = match service_map_clone.write() {
                             Ok(mut map) => {
                                 map.insert("dummy", send);
                                 map.len()
@@ -181,38 +201,11 @@ fn main() {
         for _ in 0..mux.in_buf.len() {
             match mux.in_buf.pop() {
                 Some(pkt) => {
-                    // route_pkts(local, pkt, &mux.mempool());
+                    let srvc_map = service_map.clone();
+                    let mux_clone = mux.clone();
                     thread::scope(|s| {
                         s.spawn(|_| {
-                            let buf = unsafe {
-                                from_raw_parts_mut(dpdk_sys::_pkt_raw_addr(pkt.get_ptr()), MTU)
-                            };
-                            let tuple = match FiveTuple::parse_pkt(buf, &local, &vec![0][..]) {
-                                Ok(f) => f,
-                                Err(e) => {
-                                    log::error!("Dropping packet because: {:#?}", e);
-                                    drop(pkt);
-                                    return;
-                                }
-                            };
-                            if tuple.ethertype() == FiveTuple::ETHERTYPE_ARP {
-                                tuple.handle_arp(local, &mux.mempool());
-                            }
-                            // NOTE: Service name is hardcoded for now
-                            let srvc = "dummy";
-                            match service_map.read() {
-                                Ok(map) => {
-                                    // map.get(&srvc).unwrap().to_owned()
-                                    // TODO: remove the unwraps
-                                    let sender = map.get(&srvc).unwrap();
-                                    sender.send(pkt).unwrap();
-                                }
-                                Err(p_err) => {
-                                    let map = p_err.into_inner();
-                                    let sender = map.get(&srvc).unwrap();
-                                    sender.send(pkt).unwrap();
-                                }
-                            };
+                            route_pkts(srvc_map, local, pkt, mux_clone);
                         });
                     })
                     .unwrap();
@@ -220,12 +213,7 @@ fn main() {
                 None => break,
             }
         }
-
         // TODO: Send packets to clients or drop them
         // TODO: Check packets received from clients and send them out
     }
-    // match listener_thd.join() {
-    //     Ok(_) => {}
-    //     Err(e) => log::error!("listener thread did not exit cleanly: {:#?}", e),
-    // }
 }
