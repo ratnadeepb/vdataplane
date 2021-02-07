@@ -5,9 +5,10 @@ use crossbeam::{
     sync::ShardedLock,
     thread,
 };
-use l3enginelib::{Mbuf, Mempool};
+use l3enginelib::Mbuf;
 use memenpsf::MemEnpsf;
 use mux::*;
+use state::Storage;
 
 use std::{
     collections::HashMap,
@@ -34,6 +35,7 @@ const MTU: usize = 1536; // NOTE: Definition in multiple places
 // static MEMPOOL: Storage<Mempool> = Storage::new();
 // static SERVICE_MAP: ShardedLock<HashMap<&str, Sender<&mut [u8]>>> =
 //     ShardedLock::new(HashMap::new());
+static MUX: Storage<Mux> = Storage::new();
 
 /// Handle Ctrl+C
 fn handle_signal(kr: Arc<AtomicBool>) {
@@ -45,24 +47,38 @@ fn handle_signal(kr: Arc<AtomicBool>) {
 
 fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>) {
     let mut dev = MemEnpsf::new(name, CAP, stream);
-    match cons.recv() {
-        Ok(buf) => {
-            let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
-            let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
-            match dev.xmit_to_client(pkt) {
-                Ok(_) => {}
-                Err(_e) => {
-                    log::error!("Error sending packet");
-                    #[cfg(feature = "debug")]
-                    println!("Error sending packet");
+    let mux = MUX.get();
+    loop {
+        // TODO: introduce ctrl + c
+        match cons.recv() {
+            Ok(buf) => {
+                let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
+                let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
+                match dev.xmit_to_client(pkt) {
+                    Ok(_) => {}
+                    Err(_e) => {
+                        log::error!("Buffer full: dropping packet");
+                        #[cfg(feature = "debug")]
+                        println!("Buffer full: dropping packet");
+                    }
                 }
             }
+            Err(_) => {
+                log::info!("channel has been closed");
+                #[cfg(featuer = "debug")]
+                println!("channel has been closed");
+                return;
+            }
         }
-        Err(_) => {
-            log::info!("channel has been closed");
-            #[cfg(featuer = "debug")]
-            println!("channel has been closed");
-            return;
+        match dev.recv_from_client() {
+            Some(pkt) => {
+                if let Ok(buf) = Mbuf::from_bytes(&pkt, &mux.mempool()) {
+                    &mux.out_buf.push(buf).unwrap();
+                    #[cfg(feature = "debug")]
+                    println!("Added packet to outbuf");
+                }
+            }
+            None => {}
         }
     }
 }
@@ -85,6 +101,23 @@ fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>) {
 // }
 
 fn main() {
+    let mux = Mux::new().unwrap(); // fatal failure
+    #[cfg(feature = "debug")]
+    println!("mux created");
+    MUX.set(mux);
+    let mux = MUX.get();
+    mux::start();
+    #[cfg(feature = "debug")]
+    println!("mux started");
+
+    let mac = [0x90, 0xe2, 0xba, 0xb2, 0x98, 0x48];
+    let ip = Ipv4Addr::new(10, 10, 1, 1);
+    let local = LocalIPMac::new(ip, mac);
+
+    // handling Ctrl+C
+    let keep_running = Arc::new(AtomicBool::new(true));
+    // let kr = keep_running.clone();
+    handle_signal(keep_running.clone());
     fs::remove_file(SOCK_NAME).ok();
     let service_map: ShardedLock<HashMap<&str, Sender<Mbuf>>> = ShardedLock::new(HashMap::new());
     let _listener_thd = thread::scope(|s| {
