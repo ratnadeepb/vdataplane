@@ -125,7 +125,7 @@ fn main() {
     #[cfg(feature = "debug")]
     println!("mux started");
 
-    let mac = [0x90, 0xe2, 0xba, 0xb2, 0x98, 0x48];
+    let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
     let ip = Ipv4Addr::new(10, 10, 1, 1);
     let local = LocalIPMac::new(ip, mac);
 

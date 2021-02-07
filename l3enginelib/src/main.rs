@@ -86,6 +86,8 @@ fn main() {
 	println!("mempool set");
 
 	log::info!("setup ports");
+	#[cfg(feature = "debug")]
+	println!("setup ports");
 	let eth_devs = "port0";
 	let mut port = Port::new(eth_devs, 0u16).unwrap();
 	port.configure(cores.len() as u16, &mempool).unwrap();

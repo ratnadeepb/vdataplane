@@ -53,6 +53,14 @@ impl Port {
 	}
 
 	pub fn configure(&mut self, num_cores: u16, mempool: &Mempool) -> Result<(), PortError> {
+		let mut n_cores = num_cores;
+
+		if num_cores % 2 == 1 {
+			n_cores += 1;
+		} else {
+			n_cores = num_cores;
+		}
+
 		let mut conf = dpdk_sys::rte_eth_conf::default();
 
 		conf.rxmode.mq_mode = dpdk_sys::rte_eth_rx_mq_mode::ETH_MQ_RX_RSS;
@@ -74,7 +82,9 @@ impl Port {
 		}
 
 		// configure the device
-		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, num_cores, num_cores, &conf) } {
+		#[cfg(feature = "debug")]
+		println!("configuring port");
+		match unsafe { dpdk_sys::rte_eth_dev_configure(self.id, n_cores, n_cores, &conf) } {
 			0 => {}
 			_ => return Err(PortError::new()),
 		};
@@ -83,13 +93,8 @@ impl Port {
 		let rx_conf = &self.dev_info.default_rxconf;
 		let tx_conf = &self.dev_info.default_txconf;
 
-		let mut n_cores = num_cores;
-
-		if num_cores % 2 == 1 {
-			n_cores += 1;
-		} else {
-			n_cores = num_cores;
-		}
+		#[cfg(feature = "debug")]
+		println!("n_cores: {}", n_cores);
 
 		for i in 0..n_cores {
 			unsafe {
@@ -109,6 +114,9 @@ impl Port {
 					}
 				}
 
+				#[cfg(feature = "debug")]
+				println!("rx queue configured");
+
 				match dpdk_sys::rte_eth_tx_queue_setup(
 					self.id,
 					i,
@@ -123,12 +131,19 @@ impl Port {
 						return Err(e);
 					}
 				}
+				#[cfg(feature = "debug")]
+				println!("tx queue configured");
 			}
 		}
+		#[cfg(feature = "debug")]
+		println!("all queues configured");
 
 		// sets the port's promiscuous mode
 		match unsafe { dpdk_sys::rte_eth_promiscuous_enable(self.id) } {
-			0 => {}
+			0 => {
+				#[cfg(feature = "debug")]
+				println!("promiscuous mode enabled");
+			}
 			_ => return Err(PortError::new()),
 		};
 		Ok(())
@@ -153,9 +168,8 @@ impl Port {
 		// const RX_BURST_MAX: usize = 32;
 		let mut ptrs = Vec::with_capacity(sz);
 
-		let len = unsafe {
-			dpdk_sys::_rte_eth_rx_burst(self.id, queue_id, ptrs.as_mut_ptr(), sz as u16)
-		};
+		let len =
+			unsafe { dpdk_sys::_rte_eth_rx_burst(self.id, queue_id, ptrs.as_mut_ptr(), sz as u16) };
 
 		unsafe {
 			ptrs.set_len(len as usize);

@@ -44,11 +44,11 @@ impl<'a> Mux {
 			println!("found channel");
 			println!(
 				"packetiser: new : client_to_engine found {:p}",
-				channel.client_to_engine.get_ptr()
+				channel.to_engine.get_ptr()
 			);
 			println!(
 				"packetiser: new : engine_to_client found {:p}",
-				channel.engine_to_client.get_ptr()
+				channel.to_packetiser.get_ptr()
 			);
 		}
 		let mempool = Mempool::lookup(Self::G_MEMPOOL_NAME).ok()?;
