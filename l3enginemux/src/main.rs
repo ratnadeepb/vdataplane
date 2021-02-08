@@ -8,7 +8,6 @@ use crossbeam::{
 use l3enginelib::Mbuf;
 use memenpsf::MemEnpsf;
 use mux::*;
-use state::Storage;
 
 use std::{
     collections::HashMap,
@@ -31,11 +30,12 @@ const CAP: usize = 20;
 const BURST_SZ: usize = 512;
 const MEMENPSF: &str = "memenpsf";
 const MTU: usize = 1536; // NOTE: Definition in multiple places
+const MUX_ZMQ_PORT: &str = "tcp://localhost:5555";
 
 // static MEMPOOL: Storage<Mempool> = Storage::new();
 // static SERVICE_MAP: ShardedLock<HashMap<&str, Sender<&mut [u8]>>> =
 //     ShardedLock::new(HashMap::new());
-static MUX: Storage<Mux> = Storage::new();
+// static MUX: Storage<Mux> = Storage::new();
 
 /// Handle Ctrl+C
 fn handle_signal(kr: Arc<AtomicBool>) {
@@ -45,9 +45,9 @@ fn handle_signal(kr: Arc<AtomicBool>) {
     .expect("Error setting Ctrl-C handler");
 }
 
-fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>) {
+fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>, mux: Arc<Mux>) {
     let mut dev = MemEnpsf::new(name, CAP, stream);
-    let mux = MUX.get();
+    // let mux = MUX.get();
     loop {
         // TODO: introduce ctrl + c
         match cons.recv() {
@@ -119,18 +119,26 @@ fn route_pkts(
 }
 
 fn main() {
-    let mux = Arc::new(Mux::new().unwrap()); // fatal failure
-    #[cfg(feature = "debug")]
-    println!("mux created");
-    // MUX.set(mux);
-    // let mux = MUX.get();
     mux::start();
     #[cfg(feature = "debug")]
     println!("mux started");
 
-    let mac = [0x90, 0xe2, 0xba, 0xb2, 0x98, 0x48];
+    let mux = Arc::new(Mux::new().unwrap()); // fatal failure
+    #[cfg(feature = "debug")]
+    println!("mux created");
+
+    let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
     let ip = Ipv4Addr::new(10, 10, 1, 1);
     let local = LocalIPMac::new(ip, mac);
+
+    #[cfg(feature = "debug")]
+    println!("packetiser: sending ready msg to main");
+    let context = zmq::Context::new();
+    let requester = context.socket(zmq::REQ).unwrap(); // fatal error
+    assert!(requester.connect(MUX_ZMQ_PORT).is_ok());
+    requester.send("Hello", 0).unwrap();
+    #[cfg(feature = "debug")]
+    println!("packetiser: sent ready msg to main");
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
@@ -140,12 +148,14 @@ fn main() {
     let service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>> =
         Arc::new(ShardedLock::new(HashMap::new()));
     let service_map_clone = service_map.clone();
+    let mux_clone = mux.clone();
     let _listener_thd = thread::scope(|s| {
         s.spawn(|_| {
             let listener = UnixListener::bind(SOCK_NAME).unwrap();
             for stream in listener.incoming() {
                 match stream {
                     Ok(stream) => {
+                        let cloned_mux = mux_clone.clone();
                         let (send, recv) = bounded(BURST_SZ);
                         let l = match service_map_clone.write() {
                             Ok(mut map) => {
@@ -162,7 +172,7 @@ fn main() {
                         };
                         let name = format!("{}{}", MEMENPSF, l);
                         spawn(move || {
-                            handle_client(&name[..], stream, recv);
+                            handle_client(&name[..], stream, recv, cloned_mux);
                         });
                     }
                     Err(e) => log::error!("failed to connect: {}", e),
@@ -171,16 +181,6 @@ fn main() {
         });
     })
     .unwrap();
-    let mux = Mux::new().unwrap(); // fatal failure
-    #[cfg(feature = "debug")]
-    println!("mux created");
-    mux::start();
-    #[cfg(feature = "debug")]
-    println!("mux started");
-
-    let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
-    let ip = Ipv4Addr::new(10, 10, 1, 1);
-    let local = LocalIPMac::new(ip, mac);
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
