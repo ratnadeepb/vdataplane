@@ -38,6 +38,8 @@ impl<'a> Mux {
 	const BURST_SZ: usize = 512;
 
 	pub(crate) fn new() -> Option<Self> {
+		#[cfg(feature = "debug")]
+		println!("starting mux");
 		let channel = Channel::lookup().ok()?;
 		#[cfg(feature = "debug")]
 		{

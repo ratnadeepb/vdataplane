@@ -1,9 +1,9 @@
 use l3enginelib::{eal_cleanup, eal_init, Channel, Mbuf, Mempool, Port};
 use log;
-use std::{sync::{
+use std::sync::{
 	atomic::{AtomicBool, Ordering},
 	Arc,
-}};
+};
 use zmq::Context;
 
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
@@ -93,6 +93,9 @@ fn main() {
 	port.configure(cores.len() as u16, &mempool).unwrap();
 	port.start().unwrap();
 
+	// start the channel
+	let channel = Channel::new().unwrap(); // we can't work otherwise!
+
 	#[cfg(feature = "debug")]
 	println!("ports set");
 
@@ -103,9 +106,6 @@ fn main() {
 	assert!(responder.bind(PACKETISER_ZMQ_PORT).is_ok());
 	let mut msg = zmq::Message::new();
 	responder.recv(&mut msg, 0).unwrap();
-
-	// start the channel
-	let channel = Channel::new().unwrap(); // we can't work otherwise!
 
 	// hold packets received from outside and packetiser
 	let mut in_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);

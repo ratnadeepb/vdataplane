@@ -39,25 +39,15 @@ impl Ring {
 	const RING_CAPACITY: usize = 512;
 
 	/// Return a Ring created from a pointer if the pointer is not null
-	pub fn from_ptr(
-		// client_id: u16,
-		rtype: RingType,
-		r: *mut dpdk_sys::rte_ring,
-	) -> Result<Self, MemoryError> {
+	pub fn from_ptr(rtype: RingType, r: *mut dpdk_sys::rte_ring) -> Result<Self, MemoryError> {
 		if let Some(raw) = NonNull::new(r) {
-			Ok(Self {
-				rtype,
-				raw,
-			})
+			Ok(Self { rtype, raw })
 		} else {
 			Err(MemoryError::NoBuf)
 		}
 	}
 
-	pub fn new(
-		rtype: RingType,
-		socket_id: raw::c_int,
-	) -> Result<Self, MemoryError> {
+	pub fn new(rtype: RingType, socket_id: raw::c_int) -> Result<Self, MemoryError> {
 		let r;
 		match &rtype {
 			RingType::P2E => r = "C2E",
@@ -72,10 +62,7 @@ impl Ring {
 				Self::RING_FLAGS as raw::c_uint,
 			)
 		}) {
-			Some(raw) => Ok(Self {
-				rtype,
-				raw,
-			}),
+			Some(raw) => Ok(Self { rtype, raw }),
 			None => Err(MemoryError::new()),
 		}
 	}
@@ -219,7 +206,7 @@ impl Drop for Ring {
 /// a transmit and a receive Ring
 /// These two Rings together form a channel
 pub struct Channel {
-	pub to_engine: Ring, // send packets from client to engine
+	pub to_engine: Ring,     // send packets from client to engine
 	pub to_packetiser: Ring, // send packets from engine to client
 }
 
@@ -241,6 +228,8 @@ impl Channel {
 
 	/// Lookup both C2E and E2C rings for this channel
 	pub fn lookup() -> Result<Self, MemoryError> {
+		#[cfg(feature = "debug")]
+		println!("lookup channel");
 		let to_packetiser = Ring::lookup(RingType::E2P)?;
 		let to_engine = Ring::lookup(RingType::P2E)?;
 		#[cfg(feature = "debug")]
