@@ -177,8 +177,8 @@ impl Packetiser {
 		if count != 0 {
 			pkts.drain(0..count)
 				.for_each(|pkt| self.i_bufqueue.push(pkt));
-			#[cfg(feature = "debug")]
-			println!("recv_from_engine_bulk: received packets");
+			// #[cfg(feature = "debug")]
+			// println!("recv_from_engine_bulk: received packets");
 		}
 		Ok(count)
 	}
