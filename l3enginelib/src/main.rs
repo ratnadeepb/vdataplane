@@ -119,12 +119,14 @@ fn main() {
 	#[cfg(feature = "debug")]
 	println!("main: secondary started");
 	while keep_running.load(Ordering::SeqCst) {
-		let _rsz = recv_pkts(&port, &mut in_pkts, &channel);
-		#[cfg(feature = "debug")]
-		println!("Received {} packets", _rsz);
-		let _tsz = xmit_pkts(&port, &mut out_pkts, &channel);
-		#[cfg(feature = "debug")]
-		println!("Received {} packets", _rsz);
+		let rsz = recv_pkts(&port, &mut in_pkts, &channel);
+		if rsz > 0 {
+			#[cfg(feature = "debug")]
+			println!("Received {} packets", rsz);
+			let _tsz = xmit_pkts(&port, &mut out_pkts, &channel);
+			#[cfg(feature = "debug")]
+			println!("xmitted {} packets", _tsz);
+		}
 	}
 
 	#[cfg(feature = "debug")]
