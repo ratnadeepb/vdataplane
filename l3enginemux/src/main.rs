@@ -18,6 +18,7 @@ use std::{
     slice::from_raw_parts_mut,
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::{self, TryRecvError},
         Arc,
     },
     thread::spawn,
@@ -38,9 +39,10 @@ const MUX_ZMQ_PORT: &str = "tcp://localhost:5555";
 // static MUX: Storage<Mux> = Storage::new();
 
 /// Handle Ctrl+C
-fn handle_signal(kr: Arc<AtomicBool>) {
+fn handle_signal(kr: Arc<AtomicBool>, tx: mpsc::Sender<u8>) {
     ctrlc::set_handler(move || {
         kr.store(false, Ordering::SeqCst);
+        tx.send(8).unwrap();
     })
     .expect("Error setting Ctrl-C handler");
 }
@@ -128,7 +130,7 @@ fn main() {
     println!("mux created");
 
     let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
-    let ip = Ipv4Addr::new(10, 10, 1, 1);
+    let ip = Ipv4Addr::new(192, 168, 1, 2);
     let local = LocalIPMac::new(ip, mac);
 
     #[cfg(feature = "debug")]
@@ -142,50 +144,60 @@ fn main() {
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
-    // let kr = keep_running.clone();
-    handle_signal(keep_running.clone());
+    let kr = keep_running.clone();
+    let (tx, rx) = mpsc::channel::<u8>();
+    handle_signal(keep_running.clone(), tx);
     fs::remove_file(SOCK_NAME).ok();
+    #[cfg(feature = "debug")]
+    println!("starting listener");
     let service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>> =
         Arc::new(ShardedLock::new(HashMap::new()));
     let service_map_clone = service_map.clone();
     let mux_clone = mux.clone();
-    let _listener_thd = thread::scope(|s| {
-        s.spawn(|_| {
-            let listener = UnixListener::bind(SOCK_NAME).unwrap();
-            for stream in listener.incoming() {
-                match stream {
-                    Ok(stream) => {
-                        let cloned_mux = mux_clone.clone();
-                        let (send, recv) = bounded(BURST_SZ);
-                        let l = match service_map_clone.write() {
-                            Ok(mut map) => {
-                                map.insert("dummy", send);
-                                map.len()
-                            }
-                            Err(p_err) => {
-                                // Handles the case if another thread panicked
-                                // while holding the lock
-                                let mut map = p_err.into_inner();
-                                map.insert("dummy", send);
-                                map.len()
-                            }
-                        };
-                        let name = format!("{}{}", MEMENPSF, l);
-                        spawn(move || {
-                            handle_client(&name[..], stream, recv, cloned_mux);
-                        });
-                    }
-                    Err(e) => log::error!("failed to connect: {}", e),
-                }
-            }
-        });
-    })
-    .unwrap();
+    // let _listener_thd = thread::scope(|s| {
+    //     s.spawn(move |_| {
+    //         let listener = UnixListener::bind(SOCK_NAME).unwrap();
+    //         for stream in listener.incoming() {
+    //             match rx.try_recv() {
+    //                 Ok(_) | Err(TryRecvError::Disconnected) => {
+    //                     println!("Exiting");
+    //                     break;
+    //                 }
+    //                 Err(_) => {}
+    //             }
+    //             match stream {
+    //                 Ok(stream) => {
+    //                     let cloned_mux = mux_clone.clone();
+    //                     let (send, recv) = bounded(BURST_SZ);
+    //                     let l = match service_map_clone.write() {
+    //                         Ok(mut map) => {
+    //                             map.insert("dummy", send);
+    //                             map.len()
+    //                         }
+    //                         Err(p_err) => {
+    //                             // Handles the case if another thread panicked
+    //                             // while holding the lock
+    //                             let mut map = p_err.into_inner();
+    //                             map.insert("dummy", send);
+    //                             map.len()
+    //                         }
+    //                     };
+    //                     let name = format!("{}{}", MEMENPSF, l);
+    //                     spawn(move || {
+    //                         handle_client(&name[..], stream, recv, cloned_mux);
+    //                     });
+    //                 }
+    //                 Err(e) => log::error!("failed to connect: {}", e),
+    //             }
+    //         }
+    //     });
+    // })
+    // .unwrap();
 
     // handling Ctrl+C
-    let keep_running = Arc::new(AtomicBool::new(true));
+    // let keep_running = Arc::new(AtomicBool::new(true));
     // let kr = keep_running.clone();
-    handle_signal(keep_running.clone());
+    // handle_signal(keep_running.clone());
     #[cfg(feature = "debug")]
     println!("main loop starting");
     while keep_running.load(Ordering::SeqCst) {
