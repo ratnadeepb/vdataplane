@@ -25,12 +25,12 @@ fn recv_pkts(port: &Port, in_pkts: &mut Vec<Mbuf>, ch: &Channel) -> usize {
 	}
 
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-	// let bufs = port.receive(queue_id, len);
-	// for pkt in bufs {
-	// 	in_pkts.push(pkt);
-	// }
+	let bufs = port.receive(queue_id, len);
+	for pkt in bufs {
+		in_pkts.push(pkt);
+	}
 	// NOTE: Would this work?
-	in_pkts.extend(port.receive(queue_id, len));
+	// in_pkts.extend(port.receive(queue_id, len));
 
 	let len = ch.send_to_packetiser_bulk(in_pkts);
 

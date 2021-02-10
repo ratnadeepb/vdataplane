@@ -123,8 +123,8 @@ impl Ring {
 
 	/// Enqueue a single packet onto the ring
 	pub fn enqueue_bulk(&self, pkts: &mut Vec<Mbuf>) -> usize {
-		#[cfg(feature = "debug")]
-		println!("starting channel enqueue");
+		// #[cfg(feature = "debug")]
+		// println!("starting channel enqueue");
 		let mut ptrs = Vec::with_capacity(pkts.len());
 		for pkt in pkts.drain(..) {
 			ptrs.push(pkt.into_ptr());

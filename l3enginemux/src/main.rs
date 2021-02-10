@@ -92,6 +92,8 @@ fn route_pkts(
     pkt: Mbuf,
     mux: Arc<Mux>,
 ) {
+    #[cfg(feature = "debug")]
+    println!("routing packet");
     let buf = unsafe { from_raw_parts_mut(dpdk_sys::_pkt_raw_addr(pkt.get_ptr()), MTU) };
     let tuple = match FiveTuple::parse_pkt(buf, &local, &vec![0][..]) {
         Ok(f) => f,
@@ -100,7 +102,15 @@ fn route_pkts(
             return;
         }
     };
-    if tuple.ethertype() == FiveTuple::ETHERTYPE_ARP {
+
+    #[cfg(feature = "debug")]
+    println!(
+        "ethertype: {}:{}",
+        tuple.ethertype().to_be(),
+        FiveTuple::ETHERTYPE_ARP
+    );
+    tuple.handle_arp(local, &mux.mempool());
+    if tuple.ethertype().to_be() == FiveTuple::ETHERTYPE_ARP {
         tuple.handle_arp(local, &mux.mempool());
     }
     // NOTE: Service name is hardcoded for now
@@ -130,7 +140,7 @@ fn main() {
     println!("mux created");
 
     let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
-    let ip = Ipv4Addr::new(192, 168, 1, 2);
+    let ip = Ipv4Addr::new(192, 168, 0, 2);
     let local = LocalIPMac::new(ip, mac);
 
     #[cfg(feature = "debug")]
@@ -203,10 +213,12 @@ fn main() {
     while keep_running.load(Ordering::SeqCst) {
         // receive packets
         let mut _sz = 0;
-        while mux.in_buf.is_empty() {
+        if !mux.in_buf.is_full() {
             _sz = mux.recv_from_engine_burst();
             #[cfg(feature = "debug")]
-            println!("received {} packets", _sz);
+            if _sz > 0 {
+                println!("received {} packets", _sz);
+            }
         }
 
         // processing received packets
