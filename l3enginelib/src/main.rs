@@ -18,23 +18,11 @@ fn handle_signal(kr: Arc<AtomicBool>) {
 	.expect("Error setting Ctrl-C handler");
 }
 
-fn recv_pkts(port: &Port, in_pkts: &mut Vec<Mbuf>, ch: &Channel) -> usize {
-	let len = in_pkts.capacity() - in_pkts.len();
-	if len == 0 {
-		return 0usize;
-	}
-
+fn recv_pkts(port: &Port, ch: &Channel, len: usize) -> usize {
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-	let bufs = port.receive(queue_id, len);
-	for pkt in bufs {
-		in_pkts.push(pkt);
-	}
-	// NOTE: Would this work?
-	// in_pkts.extend(port.receive(queue_id, len));
-
-	let len = ch.send_to_packetiser_bulk(in_pkts);
-
-	len
+	let mut bufs = port.receive(queue_id, len);
+	let sz = ch.send_to_packetiser_bulk(&mut bufs);
+	sz
 }
 
 fn xmit_pkts(port: &Port, out_pkts: &mut Vec<Mbuf>, ch: &Channel) -> usize {
@@ -108,7 +96,7 @@ fn main() {
 	responder.recv(&mut msg, 0).unwrap();
 
 	// hold packets received from outside and packetiser
-	let mut in_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
+	// let mut in_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
 	let mut out_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
 
 	// handling Ctrl+C
@@ -119,7 +107,7 @@ fn main() {
 	#[cfg(feature = "debug")]
 	println!("main: secondary started");
 	while keep_running.load(Ordering::SeqCst) {
-		let rsz = recv_pkts(&port, &mut in_pkts, &channel);
+		let rsz = recv_pkts(&port, &channel, QUEUE_SZ);
 		if rsz > 0 {
 			#[cfg(feature = "debug")]
 			println!("Received {} packets", rsz);

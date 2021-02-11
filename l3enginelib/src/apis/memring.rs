@@ -123,8 +123,6 @@ impl Ring {
 
 	/// Enqueue a single packet onto the ring
 	pub fn enqueue_bulk(&self, pkts: &mut Vec<Mbuf>) -> usize {
-		// #[cfg(feature = "debug")]
-		// println!("starting channel enqueue");
 		let mut ptrs = Vec::with_capacity(pkts.len());
 		for pkt in pkts.drain(..) {
 			ptrs.push(pkt.into_ptr());
@@ -287,7 +285,7 @@ impl Channel {
 	/// Receive bulk from engine
 	pub fn recv_from_engine_burst(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
 		#[cfg(feature = "debug")]
-		println!("recv_from_engine_bulk");
+		println!("recv_from_engine_burst");
 		self.to_packetiser.dequeue_burst(pkts, rx_burst_max)
 	}
 }

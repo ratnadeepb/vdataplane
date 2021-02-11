@@ -135,7 +135,7 @@ fn main() {
     #[cfg(feature = "debug")]
     println!("mux started");
 
-    let mux = Arc::new(Mux::new().unwrap()); // fatal failure
+    let mut mx = Arc::new(Mux::new().unwrap()); // fatal failure
     #[cfg(feature = "debug")]
     println!("mux created");
 
@@ -163,7 +163,7 @@ fn main() {
     let service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>> =
         Arc::new(ShardedLock::new(HashMap::new()));
     let service_map_clone = service_map.clone();
-    let mux_clone = mux.clone();
+    let mux_clone = mx.clone();
     // let _listener_thd = thread::scope(|s| {
     //     s.spawn(move |_| {
     //         let listener = UnixListener::bind(SOCK_NAME).unwrap();
@@ -213,8 +213,8 @@ fn main() {
     while keep_running.load(Ordering::SeqCst) {
         // receive packets
         let mut _sz = 0;
-        if !mux.in_buf.is_full() {
-            _sz = mux.recv_from_engine_burst();
+        if !mx.in_buf.is_full() {
+            _sz = mx.recv_from_engine_burst();
             #[cfg(feature = "debug")]
             if _sz > 0 {
                 println!("received {} packets", _sz);
@@ -222,11 +222,11 @@ fn main() {
         }
 
         // processing received packets
-        for _ in 0..mux.in_buf.len() {
-            match mux.in_buf.pop() {
+        for _ in 0..mx.in_buf.len() {
+            match mx.in_buf.pop() {
                 Some(pkt) => {
                     let srvc_map = service_map.clone();
-                    let mux_clone = mux.clone();
+                    let mux_clone = mx.clone();
                     thread::scope(|s| {
                         s.spawn(|_| {
                             route_pkts(srvc_map, local, pkt, mux_clone);

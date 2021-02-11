@@ -92,6 +92,10 @@ impl<'a> Mux {
 		}
 		let sz = self.channel.recv_from_engine_burst(&mut pkts, len);
 		pkts.truncate(sz);
+		#[cfg(feature = "debug")]
+		if sz > 0 {
+			println!("recv_from_engine_burst - sz: {}", sz);
+		}
 		pkts.drain(..)
 			.for_each(|pkt| self.in_buf.push(pkt).unwrap()); // we should never hit the unwrap
 		sz
