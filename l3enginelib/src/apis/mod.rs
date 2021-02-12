@@ -1,7 +1,7 @@
 //! This module defines structures that are required for DPDK based memory operations
-//! 
+//!
 //! Errors related to DPDK operations
-//! 
+//!
 //! DPDK EAL startup and cleanup ops
 
 mod mbuf;
@@ -68,7 +68,7 @@ pub enum MemoryError {
 	NoMem,
 	#[error("not enough memory")]
 	NoBuf,
-	#[error("not enough entries to dequeue")]
+	#[error("not enough entries")]
 	NoEntries,
 	#[error("bad val")]
 	BadVal, // should never hit this
