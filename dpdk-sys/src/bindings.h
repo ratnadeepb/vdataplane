@@ -103,6 +103,10 @@ int _rte_ring_dequeue(struct rte_ring *r, void **obj_p);
 unsigned int _rte_ring_enqueue_bulk(struct rte_ring *r, void *const *obj_table,
                                     unsigned int n, unsigned int *free_space);
 
+/* Enqueue several objects on a ring. */
+unsigned int _rte_ring_enqueue_burst(struct rte_ring *r, void *const *obj_table,
+                                    unsigned int n, unsigned int *free_space);
+
 /* Parse IP to u32 */
 int _pkt_parse_ip(char *ip_str, uint32_t *dest);
 
