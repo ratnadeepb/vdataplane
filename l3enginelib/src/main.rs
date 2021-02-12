@@ -18,11 +18,14 @@ fn handle_signal(kr: Arc<AtomicBool>) {
 	.expect("Error setting Ctrl-C handler");
 }
 
-fn recv_pkts(port: &Port, ch: &Channel, len: usize) -> usize {
+fn recv_pkts(port: &Port, len: usize) -> Vec<Mbuf> {
 	let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-	let mut bufs = port.receive(queue_id, len);
-	let sz = ch.send_to_packetiser_bulk(&mut bufs);
-	sz
+	let bufs = port.receive(queue_id, len);
+	#[cfg(features = "debug")]
+	if bufs.len() > 0 {
+		println!("bufs len - recv_pkts: {}", bufs.len());
+	}
+	bufs
 }
 
 fn xmit_pkts(port: &Port, out_pkts: &mut Vec<Mbuf>, ch: &Channel) -> usize {
@@ -107,10 +110,14 @@ fn main() {
 	#[cfg(feature = "debug")]
 	println!("main: secondary started");
 	while keep_running.load(Ordering::SeqCst) {
-		let rsz = recv_pkts(&port, &channel, QUEUE_SZ);
-		if rsz > 0 {
+		let bufs = recv_pkts(&port, QUEUE_SZ);
+		if bufs.len() > 0 {
 			#[cfg(feature = "debug")]
-			println!("Received {} packets", rsz);
+			println!("Received {} packets", bufs.len());
+			let sz = channel.send_to_packetiser_bulk(bufs);
+			if sz > 0 {
+				println!("sent to channel: {}", sz);
+			}
 			let _tsz = xmit_pkts(&port, &mut out_pkts, &channel);
 			#[cfg(feature = "debug")]
 			println!("xmitted {} packets", _tsz);
