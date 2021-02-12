@@ -6,6 +6,7 @@
 //! A Channel is a combination to two Ring structures - one for sending packets and the other for receiving.
 
 use anyhow::Result;
+use libc::c_uint;
 // use chashmap::CHashMap;
 use std::{
 	marker::{Send, Sync},
@@ -121,16 +122,68 @@ impl Ring {
 		}
 	}
 
-	/// Enqueue a single packet onto the ring
-	pub fn enqueue_bulk(&self, pkts: &mut Vec<Mbuf>) -> usize {
+	/// Enqueue packets in bulk onto the ring
+	pub fn enqueue_burst(&self, mut pkts: Vec<Mbuf>) -> usize {
 		let mut ptrs = Vec::with_capacity(pkts.len());
 		for pkt in pkts.drain(..) {
 			ptrs.push(pkt.into_ptr());
 		}
+		#[cfg(feature = "debug")]
+		{
+			println!("enqueue_burst - ptrs sz: {}", ptrs.len());
+			let mut free: c_uint = 0;
+			let sz = unsafe {
+				dpdk_sys::_rte_ring_enqueue_burst(
+					self.get_ptr(),
+					ptrs.as_mut_ptr() as *mut *mut raw::c_void,
+					pkts.len() as u32,
+					// ptr::null::<u32>() as *mut u32,
+					&mut free as *mut c_uint,
+				) as usize
+			};
+			println!("enqueue_burst - sz: {}", sz);
+			println!("enqueue_burst - free: {}", free);
+			sz
+		}
+		#[cfg(not(feature = "debug"))]
+		unsafe {
+			dpdk_sys::_rte_ring_enqueue_burst(
+				self.get_ptr(),
+				ptrs.as_mut_ptr() as *mut *mut raw::c_void,
+				pkts.len() as u32,
+				ptr::null::<u32>() as *mut u32,
+			) as usize
+		}
+	}
+
+	/// Enqueue packets in bulk onto the ring
+	pub fn enqueue_bulk(&self, mut pkts: Vec<Mbuf>) -> usize {
+		let mut ptrs = Vec::with_capacity(pkts.len());
+		for pkt in pkts.drain(..) {
+			ptrs.push(pkt.into_ptr());
+		}
+		#[cfg(feature = "debug")]
+		{
+			println!("enqueue_bulk - ptrs sz: {}", ptrs.len());
+			let mut free: c_uint = 0;
+			let sz = unsafe {
+				dpdk_sys::_rte_ring_enqueue_bulk(
+					self.get_ptr(),
+					ptrs.as_mut_ptr() as *mut *mut raw::c_void,
+					pkts.len() as u32,
+					// ptr::null::<u32>() as *mut u32,
+					&mut free as *mut c_uint,
+				) as usize
+			};
+			println!("enqueue_bulk - sz: {}", sz);
+			println!("enqueue_bulk - free: {}", free);
+			sz
+		}
+		#[cfg(not(feature = "debug"))]
 		unsafe {
 			dpdk_sys::_rte_ring_enqueue_bulk(
 				self.get_ptr(),
-				ptrs.as_ptr() as *mut *mut raw::c_void,
+				ptrs.as_mut_ptr() as *mut *mut raw::c_void,
 				pkts.len() as u32,
 				ptr::null::<u32>() as *mut u32,
 			) as usize
@@ -268,8 +321,28 @@ impl Channel {
 	}
 
 	/// Send bulk to packetiser
-	pub fn send_to_packetiser_bulk(&self, pkts: &mut Vec<Mbuf>) -> usize {
-		self.to_packetiser.enqueue_bulk(pkts)
+	pub fn send_to_packetiser_bulk(&self, pkts: Vec<Mbuf>) -> usize {
+		// self.to_packetiser.enqueue_bulk(pkts)
+		// self.to_packetiser.enqueue_burst(pkts)
+		#[cfg(feature = "debug")]
+		println!("pkts sz: {}", pkts.len());
+		let mut i = 0;
+		for pkt in pkts {
+			#[cfg(feature = "debug")]
+			if i == 0 {
+				println!("pkt: {:#?}", &pkt);
+			}
+			match self.to_packetiser.enqueue(pkt) {
+				Ok(_) => i += 1,
+				Err(e) => {
+					log::error!("{}: Memory error trying to send to packetiser: {}", i, e);
+					#[cfg(feature = "debug")]
+					println!("{}: Memory error trying to send to packetiser: {}", i, e);
+					break;
+				}
+			}
+		}
+		i
 	}
 
 	/// Receive bulk from packetiser
@@ -278,14 +351,14 @@ impl Channel {
 	}
 
 	/// Send bulk to engine
-	pub fn send_to_engine_bulk(&self, pkts: &mut Vec<Mbuf>) -> usize {
+	pub fn send_to_engine_bulk(&self, pkts: Vec<Mbuf>) -> usize {
 		self.to_engine.enqueue_bulk(pkts)
 	}
 
 	/// Receive bulk from engine
 	pub fn recv_from_engine_burst(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
 		#[cfg(feature = "debug")]
-		println!("recv_from_engine_burst");
+		println!("recv_from_engine_burst - size: {}", rx_burst_max);
 		self.to_packetiser.dequeue_burst(pkts, rx_burst_max)
 	}
 }
