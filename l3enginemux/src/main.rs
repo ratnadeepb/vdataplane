@@ -24,6 +24,8 @@ use std::{
     thread::spawn,
 };
 
+use async_std::task;
+
 use log;
 
 const SOCK_NAME: &str = "/tmp/fd-passrd.socket";
@@ -47,17 +49,25 @@ fn handle_signal(kr: Arc<AtomicBool>, tx: mpsc::Sender<u8>) {
     .expect("Error setting Ctrl-C handler");
 }
 
-fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>, mux: Arc<Mux>) {
+async fn handle_client(
+    name: &str,
+    stream: UnixStream,
+    cons: Receiver<Mbuf>,
+    mux: Arc<Mux>,
+    k: Arc<AtomicBool>,
+) {
+    #[cfg(feature = "debug")]
+    println!("handling: {}", name);
     let mut dev = MemEnpsf::new(name, CAP, stream);
     // let mux = MUX.get();
-    loop {
+    while k.load(Ordering::SeqCst) {
         // TODO: introduce ctrl + c
         match cons.recv() {
             Ok(buf) => {
                 // original location of Mbuf forgotten here
-                let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
-                let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
-                match dev.xmit_to_client(pkt) {
+                // let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
+                // let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
+                match dev.xmit_to_client(buf) {
                     Ok(_) => {}
                     Err(_e) => {
                         log::error!("Buffer full: packet dropped");
@@ -75,11 +85,15 @@ fn handle_client(name: &str, stream: UnixStream, cons: Receiver<Mbuf>, mux: Arc<
         }
         match dev.recv_from_client() {
             Some(pkt) => {
-                if let Ok(buf) = Mbuf::from_bytes(&pkt, &mux.mempool()) {
-                    &mux.out_buf.push(buf).unwrap();
-                    #[cfg(feature = "debug")]
-                    println!("Added packet to outbuf");
+                if let Err(buf) = &mux.out_buf.push(pkt) {
+                    log::error!("packet pushing failed");
+                    drop(buf);
                 }
+                // if let Ok(buf) = Mbuf::from_bytes(&pkt, &mux.mempool()) {
+                //     &mux.out_buf.push(buf).unwrap();
+                //     #[cfg(feature = "debug")]
+                //     println!("Added packet to outbuf");
+                // }
             }
             None => {}
         }
@@ -135,7 +149,7 @@ fn main() {
     #[cfg(feature = "debug")]
     println!("mux started");
 
-    let mut mx = Arc::new(Mux::new().unwrap()); // fatal failure
+    let mx = Arc::new(Mux::new().unwrap()); // fatal failure
     #[cfg(feature = "debug")]
     println!("mux created");
 
@@ -154,9 +168,9 @@ fn main() {
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
-    let kr = keep_running.clone();
     let (tx, rx) = mpsc::channel::<u8>();
     handle_signal(keep_running.clone(), tx);
+    let kr = keep_running.clone();
     fs::remove_file(SOCK_NAME).ok();
     #[cfg(feature = "debug")]
     println!("starting listener");
@@ -164,50 +178,57 @@ fn main() {
         Arc::new(ShardedLock::new(HashMap::new()));
     let service_map_clone = service_map.clone();
     let mux_clone = mx.clone();
-    // let _listener_thd = thread::scope(|s| {
-    //     s.spawn(move |_| {
-    //         let listener = UnixListener::bind(SOCK_NAME).unwrap();
-    //         for stream in listener.incoming() {
-    //             match rx.try_recv() {
-    //                 Ok(_) | Err(TryRecvError::Disconnected) => {
-    //                     println!("Exiting");
-    //                     break;
-    //                 }
-    //                 Err(_) => {}
-    //             }
-    //             match stream {
-    //                 Ok(stream) => {
-    //                     let cloned_mux = mux_clone.clone();
-    //                     let (send, recv) = bounded(BURST_SZ);
-    //                     let l = match service_map_clone.write() {
-    //                         Ok(mut map) => {
-    //                             map.insert("dummy", send);
-    //                             map.len()
-    //                         }
-    //                         Err(p_err) => {
-    //                             // Handles the case if another thread panicked
-    //                             // while holding the lock
-    //                             let mut map = p_err.into_inner();
-    //                             map.insert("dummy", send);
-    //                             map.len()
-    //                         }
-    //                     };
-    //                     let name = format!("{}{}", MEMENPSF, l);
-    //                     spawn(move || {
-    //                         handle_client(&name[..], stream, recv, cloned_mux);
-    //                     });
-    //                 }
-    //                 Err(e) => log::error!("failed to connect: {}", e),
-    //             }
-    //         }
-    //     });
-    // })
-    // .unwrap();
+    let listener_thd = spawn(move || {
+        let listener = UnixListener::bind(SOCK_NAME).unwrap();
+        for stream in listener.incoming() {
+            match rx.try_recv() {
+                Ok(_) | Err(TryRecvError::Disconnected) => {
+                    println!("Exiting");
+                    return;
+                }
+                Err(_) => {}
+            }
+            match stream {
+                Ok(stream) => {
+                    let (send, recv) = bounded(BURST_SZ);
+                    let l = match service_map_clone.write() {
+                        Ok(mut map) => {
+                            map.insert("dummy", send);
+                            map.len()
+                        }
+                        Err(p_err) => {
+                            // Handles the case if another thread panicked
+                            // while holding the lock
+                            let mut map = p_err.into_inner();
+                            map.insert("dummy", send);
+                            map.len()
+                        }
+                    };
+                    let name = format!("{}{}", MEMENPSF, l);
+                    let n = name.clone();
+                    let cloned_mux = mux_clone.clone();
+                    let k = kr.clone();
+                    task::block_on(task::spawn(async move {
+                        handle_client(&n[..], stream, recv, cloned_mux, k).await;
+                    }));
+                    // match thread::scope(|s| {
+                    //     s.spawn(move |_| {
+                    //         handle_client(&n[..], stream, recv, cloned_mux, k);
+                    //     });
+                    // }) {
+                    //     Ok(_) => {}
+                    //     Err(e) => {
+                    //         log::error!("failed to start device {} for client: {:#?}", &name, e);
+                    //         #[cfg(feature = "debug")]
+                    //         println!("failed to start device {} for client", name);
+                    //     }
+                    // }
+                }
+                Err(e) => log::error!("failed to connect: {}", e),
+            }
+        }
+    });
 
-    // handling Ctrl+C
-    // let keep_running = Arc::new(AtomicBool::new(true));
-    // let kr = keep_running.clone();
-    // handle_signal(keep_running.clone());
     #[cfg(feature = "debug")]
     println!("main loop starting");
     while keep_running.load(Ordering::SeqCst) {
@@ -227,12 +248,14 @@ fn main() {
                 Some(pkt) => {
                     let srvc_map = service_map.clone();
                     let mux_clone = mx.clone();
-                    thread::scope(|s| {
-                        s.spawn(|_| {
-                            route_pkts(srvc_map, local, pkt, mux_clone);
-                        });
-                    })
-                    .unwrap();
+                    route_pkts(srvc_map, local, pkt, mux_clone);
+                    // let kr = keep_running.clone();
+                    // thread::scope(|s| {
+                    //     s.spawn(|_| {
+                    //         route_pkts(srvc_map, local, pkt, mux_clone);
+                    //     });
+                    // })
+                    // .unwrap();
                 }
                 None => break,
             }
@@ -240,4 +263,5 @@ fn main() {
         // TODO: Send packets to clients or drop them
         // TODO: Check packets received from clients and send them out
     }
+    listener_thd.join().unwrap();
 }
