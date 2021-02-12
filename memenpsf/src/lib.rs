@@ -12,17 +12,17 @@ use std::{
 use ipc_queue::RingBuf;
 use libc::{ftruncate, mmap, MAP_SHARED, PROT_READ, PROT_WRITE};
 
-const MTU: usize = 1536;
+// const MTU: usize = 1536;
 
-pub struct MemEnpsf<'a> {
+pub struct MemEnpsf<'a, T> {
     name: &'a str,
-    s2c_q: RingBuf<[u8; MTU]>,
-    c2s_q: RingBuf<[u8; MTU]>,
+    s2c_q: RingBuf<T>,
+    c2s_q: RingBuf<T>,
     cap: usize,
     stream: UnixStream,
 }
 
-impl<'a> MemEnpsf<'a> {
+impl<'a, T> MemEnpsf<'a, T> {
     /// Create a new interface
     pub fn new(name: &'a str, cap: usize, mut stream: UnixStream) -> Self {
         let fd = fdpass::recv_fd(&mut stream, vec![0u8]).unwrap();
@@ -38,9 +38,9 @@ impl<'a> MemEnpsf<'a> {
             )
         };
         let bs_s2c = shm;
-        let bs_c2s = unsafe { shm.offset((cap * MTU) as isize) };
-        let s2c_q = RingBuf::<[u8; MTU]>::new(bs_s2c, cap);
-        let c2s_q = RingBuf::<[u8; MTU]>::new(bs_c2s, cap);
+        let bs_c2s = unsafe { shm.offset(cap as isize) };
+        let s2c_q = RingBuf::<T>::new(bs_s2c, cap);
+        let c2s_q = RingBuf::<T>::new(bs_c2s, cap);
         Self {
             name,
             s2c_q,
@@ -58,7 +58,7 @@ impl<'a> MemEnpsf<'a> {
         self.name
     }
 
-    pub fn recv_from_client(&mut self) -> Option<[u8; MTU]> {
+    pub fn recv_from_client(&mut self) -> Option<T> {
         let res = self.c2s_q.pop();
         let buf = self.c2s_q.pointers();
         match self.stream.write(&buf) {
@@ -70,7 +70,7 @@ impl<'a> MemEnpsf<'a> {
         res
     }
 
-    pub fn xmit_to_client(&mut self, buf: [u8; MTU]) -> Result<()> {
+    pub fn xmit_to_client(&mut self, buf: T) -> Result<()> {
         let res = self.s2c_q.push(buf);
         let buf = self.c2s_q.pointers();
         match self.stream.write(&buf) {
@@ -82,7 +82,7 @@ impl<'a> MemEnpsf<'a> {
         res
     }
 
-    pub fn recv_from_srv(&mut self) -> Option<[u8; MTU]> {
+    pub fn recv_from_srv(&mut self) -> Option<T> {
         let res = self.s2c_q.pop();
         let buf = self.c2s_q.pointers();
         match self.stream.write(&buf) {
@@ -94,7 +94,7 @@ impl<'a> MemEnpsf<'a> {
         res
     }
 
-    pub fn xmit_to_srv(&mut self, buf: [u8; MTU]) -> Result<()> {
+    pub fn xmit_to_srv(&mut self, buf: T) -> Result<()> {
         let res = self.c2s_q.push(buf);
         let buf = self.c2s_q.pointers();
         match self.stream.write(&buf) {
