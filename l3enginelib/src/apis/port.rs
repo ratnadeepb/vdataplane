@@ -171,6 +171,8 @@ impl Port {
 		let len =
 			unsafe { dpdk_sys::_rte_eth_rx_burst(self.id, queue_id, ptrs.as_mut_ptr(), sz as u16) };
 
+		// #[cfg(feature = "debug")]
+		// println!("port receive: len: {}", len);
 		unsafe {
 			ptrs.set_len(len as usize);
 			ptrs.into_iter()
