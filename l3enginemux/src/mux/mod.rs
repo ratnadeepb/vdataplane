@@ -118,7 +118,7 @@ impl<'a> Mux {
 		while !self.out_buf.is_empty() {
 			pkts.push(self.out_buf.pop().unwrap()); // we should never hit this unwrap
 		}
-		let sz = self.channel.send_to_engine_bulk(&mut pkts);
+		let sz = self.channel.send_to_engine_bulk(pkts);
 		sz
 	}
 }
