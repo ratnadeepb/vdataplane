@@ -347,7 +347,25 @@ impl Channel {
 
 	/// Receive bulk from packetiser
 	pub fn recv_from_packetiser_bulk(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
-		self.to_engine.dequeue_burst(pkts, rx_burst_max)
+		let mut i = 0;
+		let mut k = 0;
+		for pkt in pkts {
+			if k == rx_burst_max {
+				break;
+			}
+			k += 1;
+			match self.to_engine.dequeue(pkt) {
+				Ok(_) => i += 1,
+				Err(_e) => {
+					#[cfg(feature = "debug")]
+					println!("failed to dequeue: {}", _e);
+				}
+			}
+		}
+		#[cfg(feature = "debug")]
+		println!("dequeued {} pkts", i);
+		// self.to_engine.dequeue_burst(pkts, rx_burst_max)
+		i
 	}
 
 	/// Send bulk to engine
