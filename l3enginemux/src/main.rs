@@ -1,161 +1,42 @@
 mod mux;
 
-use crossbeam::{
-    channel::{bounded, Receiver, Sender},
-    sync::ShardedLock,
-    thread,
-};
-use l3enginelib::Mbuf;
-use memenpsf::MemEnpsf;
-use mux::*;
-
+use log;
+use mux::Mux;
 use std::{
-    collections::HashMap,
-    fs,
     net::Ipv4Addr,
-    os::unix::net::{UnixListener, UnixStream},
-    ptr,
-    slice::from_raw_parts_mut,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, TryRecvError},
         Arc,
     },
-    thread::spawn,
 };
 
-use async_std::task;
-
-use log;
-
-const SOCK_NAME: &str = "/tmp/fd-passrd.socket";
 const CAP: usize = 20;
 const BURST_SZ: usize = 512;
-const MEMENPSF: &str = "memenpsf";
 const MTU: usize = 1536; // NOTE: Definition in multiple places
 const MUX_ZMQ_PORT: &str = "tcp://localhost:5555";
-
-// static MEMPOOL: Storage<Mempool> = Storage::new();
-// static SERVICE_MAP: ShardedLock<HashMap<&str, Sender<&mut [u8]>>> =
-//     ShardedLock::new(HashMap::new());
-// static MUX: Storage<Mux> = Storage::new();
+const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL"; // NOTE: Definition in multiple places
 
 /// Handle Ctrl+C
-fn handle_signal(kr: Arc<AtomicBool>, tx: mpsc::Sender<u8>) {
+fn handle_signal(kr: Arc<AtomicBool>) {
     ctrlc::set_handler(move || {
         kr.store(false, Ordering::SeqCst);
-        tx.send(8).unwrap();
     })
     .expect("Error setting Ctrl-C handler");
 }
 
-async fn handle_client(
-    name: &str,
-    stream: UnixStream,
-    cons: Receiver<Mbuf>,
-    mux: Arc<Mux>,
-    k: Arc<AtomicBool>,
-) {
-    #[cfg(feature = "debug")]
-    println!("handling: {}", name);
-    let mut dev = MemEnpsf::new(name, CAP, stream);
-    // let mux = MUX.get();
-    while k.load(Ordering::SeqCst) {
-        // TODO: introduce ctrl + c
-        match cons.recv() {
-            Ok(buf) => {
-                // original location of Mbuf forgotten here
-                // let pkt = unsafe { dpdk_sys::_pkt_raw_addr(buf.into_ptr()) };
-                // let pkt = unsafe { ptr::read(pkt as *const _ as *const [u8; MTU]) };
-                match dev.xmit_to_client(buf) {
-                    Ok(_) => {}
-                    Err(_e) => {
-                        log::error!("Buffer full: packet dropped");
-                        #[cfg(feature = "debug")]
-                        println!("Buffer full: packet dropped");
-                    }
-                }
-            }
-            Err(_) => {
-                log::info!("channel has been closed");
-                #[cfg(featuer = "debug")]
-                println!("channel has been closed");
-                return;
-            }
-        }
-        match dev.recv_from_client() {
-            Some(pkt) => {
-                if let Err(buf) = &mux.out_buf.push(pkt) {
-                    log::error!("packet pushing failed");
-                    drop(buf);
-                }
-                // if let Ok(buf) = Mbuf::from_bytes(&pkt, &mux.mempool()) {
-                //     &mux.out_buf.push(buf).unwrap();
-                //     #[cfg(feature = "debug")]
-                //     println!("Added packet to outbuf");
-                // }
-            }
-            None => {}
-        }
-    }
-}
-
-fn route_pkts(
-    service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>>,
-    local: LocalIPMac,
-    pkt: Mbuf,
-    mux: Arc<Mux>,
-) {
-    #[cfg(feature = "debug")]
-    println!("routing packet");
-    let buf = unsafe { from_raw_parts_mut(dpdk_sys::_pkt_raw_addr(pkt.get_ptr()), MTU) };
-    let tuple = match FiveTuple::parse_pkt(buf, &local, &vec![0][..]) {
-        Ok(f) => f,
-        Err(e) => {
-            log::error!("Dropping packet because: {:#?}", e);
-            return;
-        }
-    };
-
-    #[cfg(feature = "debug")]
-    println!(
-        "ethertype: {}:{}",
-        tuple.ethertype().to_be(),
-        FiveTuple::ETHERTYPE_ARP
-    );
-    tuple.handle_arp(local, &mux.mempool());
-    if tuple.ethertype().to_be() == FiveTuple::ETHERTYPE_ARP {
-        tuple.handle_arp(local, &mux.mempool());
-    }
-    // NOTE: Service name is hardcoded for now
-    let srvc = "dummy";
-    match service_map.read() {
-        Ok(map) => {
-            // map.get(&srvc).unwrap().to_owned()
-            // TODO: remove the unwraps
-            let sender = map.get(&srvc).unwrap();
-            sender.send(pkt).unwrap();
-        }
-        Err(p_err) => {
-            let map = p_err.into_inner();
-            let sender = map.get(&srvc).unwrap();
-            sender.send(pkt).unwrap();
-        }
-    };
-}
+fn route_pkts() {}
 
 fn main() {
     mux::start();
     #[cfg(feature = "debug")]
     println!("mux started");
 
-    let mx = Arc::new(Mux::new().unwrap()); // fatal failure
+    let mx = Mux::new().unwrap(); // fatal failure
     #[cfg(feature = "debug")]
     println!("mux created");
 
     let mac = [0x90, 0xe2, 0xba, 0x87, 0x6b, 0xa4];
     let ip = Ipv4Addr::new(192, 168, 0, 2);
-    let local = LocalIPMac::new(ip, mac);
 
     #[cfg(feature = "debug")]
     println!("packetiser: sending ready msg to main");
@@ -168,77 +49,21 @@ fn main() {
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
-    let (tx, rx) = mpsc::channel::<u8>();
-    handle_signal(keep_running.clone(), tx);
+    handle_signal(keep_running.clone());
     let kr = keep_running.clone();
-    fs::remove_file(SOCK_NAME).ok();
-    #[cfg(feature = "debug")]
-    println!("starting listener");
-    let service_map: Arc<ShardedLock<HashMap<&str, Sender<Mbuf>>>> =
-        Arc::new(ShardedLock::new(HashMap::new()));
-    let service_map_clone = service_map.clone();
-    let mux_clone = mx.clone();
-    let listener_thd = spawn(move || {
-        let listener = UnixListener::bind(SOCK_NAME).unwrap();
-        for stream in listener.incoming() {
-            match rx.try_recv() {
-                Ok(_) | Err(TryRecvError::Disconnected) => {
-                    println!("Exiting");
-                    return;
-                }
-                Err(_) => {}
-            }
-            match stream {
-                Ok(stream) => {
-                    let (send, recv) = bounded(BURST_SZ);
-                    let l = match service_map_clone.write() {
-                        Ok(mut map) => {
-                            map.insert("dummy", send);
-                            map.len()
-                        }
-                        Err(p_err) => {
-                            // Handles the case if another thread panicked
-                            // while holding the lock
-                            let mut map = p_err.into_inner();
-                            map.insert("dummy", send);
-                            map.len()
-                        }
-                    };
-                    let name = format!("{}{}", MEMENPSF, l);
-                    let n = name.clone();
-                    let cloned_mux = mux_clone.clone();
-                    let k = kr.clone();
-                    task::block_on(task::spawn(async move {
-                        handle_client(&n[..], stream, recv, cloned_mux, k).await;
-                    }));
-                    // match thread::scope(|s| {
-                    //     s.spawn(move |_| {
-                    //         handle_client(&n[..], stream, recv, cloned_mux, k);
-                    //     });
-                    // }) {
-                    //     Ok(_) => {}
-                    //     Err(e) => {
-                    //         log::error!("failed to start device {} for client: {:#?}", &name, e);
-                    //         #[cfg(feature = "debug")]
-                    //         println!("failed to start device {} for client", name);
-                    //     }
-                    // }
-                }
-                Err(e) => log::error!("failed to connect: {}", e),
-            }
-        }
-    });
+
+    let mx = Mux::new().unwrap(); // a failure here should crash the system
 
     #[cfg(feature = "debug")]
     println!("main loop starting");
     while keep_running.load(Ordering::SeqCst) {
         // receive packets
-        let mut _sz = 0;
+        let mut _rsz = 0;
         if !mx.in_buf.is_full() {
-            _sz = mx.recv_from_engine_burst();
+            _rsz = mx.recv_from_engine_burst();
             #[cfg(feature = "debug")]
-            if _sz > 0 {
-                println!("received {} packets", _sz);
+            if _rsz > 0 {
+                println!("received {} packets", _rsz);
             }
         }
 
@@ -246,22 +71,21 @@ fn main() {
         for _ in 0..mx.in_buf.len() {
             match mx.in_buf.pop() {
                 Some(pkt) => {
-                    let srvc_map = service_map.clone();
-                    let mux_clone = mx.clone();
-                    route_pkts(srvc_map, local, pkt, mux_clone);
-                    // let kr = keep_running.clone();
-                    // thread::scope(|s| {
-                    //     s.spawn(|_| {
-                    //         route_pkts(srvc_map, local, pkt, mux_clone);
-                    //     });
-                    // })
-                    // .unwrap();
+                    // send the packets back
+                    match mx.out_buf.push(pkt) {
+                        Ok(()) => {}
+                        Err(pkt) => drop(pkt),
+                    }
                 }
                 None => break,
             }
         }
         // TODO: Send packets to clients or drop them
+        if mx.out_buf.len() > 0 {
+            let _xsz = mx.xmit_to_engine_bulk();
+            #[cfg(feature = "debug")]
+            println!("Sent out {} packets", _xsz);
+        }
         // TODO: Check packets received from clients and send them out
     }
-    listener_thd.join().unwrap();
 }

@@ -3,7 +3,4 @@ members = [
 	"dpdk-sys",
 	"l3enginelib",
 	"l3enginemux",
-	"fdpass-rs",
-	"ipc-queue",
-	"memenpsf",
 ]

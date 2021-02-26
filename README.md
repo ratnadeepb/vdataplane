@@ -7,8 +7,6 @@ Design heavily influenced by Capsule (Rust crate) and openNetVM.
 1. `dpdk-sys`: the sys lib containing the DPDK functions
 2. `l3enginelib`: both a lib containing the APIs and a bin running the (raw) pkt recv/xmit loop
 3. `l3enginemux`: runs the routing function sending packets to clients
-4. `ipc-queue`: implements a wait-free lock-free pointer based queue in contiguous virtual memory
-5. `memenpsf`: two ipc-queues built on shared memory to transfer packets and using an Unix socket for control messages
 6. `client-container`: a representation of the client container
 
 [External repo (enhanced locally)](https://github.com/stemjail/fdpass-rs) -> `fdpass-rs`: used to transmit file descriptors across a Unix socket
