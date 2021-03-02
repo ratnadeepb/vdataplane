@@ -6,8 +6,7 @@ Design heavily influenced by Capsule (Rust crate) and openNetVM.
 
 1. `dpdk-sys`: the sys lib containing the DPDK functions
 2. `l3enginelib`: both a lib containing the APIs and a bin running the (raw) pkt recv/xmit loop
-3. `l3enginemux`: runs the routing function sending packets to clients
-6. `client-container`: a representation of the client container
+3. `go_docker`: a golang container running the main proxy
 
 [External repo (enhanced locally)](https://github.com/stemjail/fdpass-rs) -> `fdpass-rs`: used to transmit file descriptors across a Unix socket
 
