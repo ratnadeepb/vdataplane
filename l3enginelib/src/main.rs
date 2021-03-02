@@ -2,6 +2,7 @@ use crossbeam::queue::ArrayQueue;
 use l3enginelib::{eal_cleanup, eal_init, Mbuf, Mempool, Port};
 use log;
 use std::{
+    fmt::format,
     io::Write,
     iter::Enumerate,
     net::TcpStream,
@@ -115,19 +116,23 @@ fn main() {
                 unsafe { dpdk_sys::_pkt_arp_response(buf.get_ptr(), (&mempool).get_ptr()) };
             if !arp_ptr.is_null() {
                 let arp_buf = unsafe { Mbuf::from_ptr(arp_ptr) };
+                let pkt = format!("{:#?}", buf);
+                if let Ok(sz) = stream.write(pkt.as_bytes()) {
+                    println!("sent {} bytes to proxy", sz);
+                }
                 &out_pkts.push(arp_buf);
                 drop_arp_pkts_index.push(i); // add index of arp packet
             }
             i += 1;
         }
 
-        // drop the arp packets before processing
-        while !drop_arp_pkts_index.is_empty() {
-            match drop_arp_pkts_index.pop() {
-                Some(k) => drop(bufs.remove(k)),
-                None => break,
-            }
-        }
+        // // drop the arp packets before processing
+        // while !drop_arp_pkts_index.is_empty() {
+        //     match drop_arp_pkts_index.pop() {
+        //         Some(k) => drop(bufs.remove(k)),
+        //         None => break,
+        //     }
+        // }
 
         if bufs.len() > 0 {
             for buf in bufs.drain(..) {
