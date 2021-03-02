@@ -35,8 +35,8 @@ vi 20-demo.conf
 ## Create the bridge
 
 ```bash
-brctl addbr demobr
-ip addr add 10.0.0.1/24 dev demobr
+sudo brctl addbr demobr
+sudo ip addr add 10.0.0.1/24 dev demobr
 ```
 
 ## Go to the plugin directory

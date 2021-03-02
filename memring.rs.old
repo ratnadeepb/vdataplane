@@ -13,6 +13,8 @@ use std::{
     ptr::NonNull,
 };
 
+use crate::Mempool;
+
 use super::{Mbuf, MemoryError, WrappedCString};
 
 /// The RingType is whether message is being sent from engine to container or from contianer to engine
@@ -160,12 +162,13 @@ impl Ring {
         for pkt in pkts.drain(..) {
             ptrs.push(pkt.into_ptr());
         }
-        #[cfg(feature = "debug")]
+        // #[cfg(feature = "debug")]
         {
+            println!("enqueing on: {:p}", self.get_ptr());
             println!("enqueue_bulk - ptrs sz: {}", ptrs.len());
             let mut free: raw::c_uint = 0;
             let sz = unsafe {
-                dpdk_sys::_rte_ring_enqueue_bulk(
+                dpdk_sys::_rte_ring_enqueue_burst(
                     self.get_ptr(),
                     ptrs.as_mut_ptr() as *mut *mut raw::c_void,
                     pkts.len() as u32,
@@ -174,17 +177,54 @@ impl Ring {
                 ) as usize
             };
             println!("enqueue_bulk - sz: {}", sz);
-            println!("enqueue_bulk - free: {}", free);
-            sz
+            // println!("enqueue_bulk - free: {}", free);
+            sz as usize
         }
-        #[cfg(not(feature = "debug"))]
-        unsafe {
-            dpdk_sys::_rte_ring_enqueue_bulk(
-                self.get_ptr(),
-                ptrs.as_mut_ptr() as *mut *mut raw::c_void,
-                pkts.len() as u32,
-                ptr::null::<u32>() as *mut u32,
-            ) as usize
+        // #[cfg(not(feature = "debug"))]
+        // unsafe {
+        //     dpdk_sys::_rte_ring_enqueue_bulk(
+        //         self.get_ptr(),
+        //         ptrs.as_mut_ptr() as *mut *mut raw::c_void,
+        //         pkts.len() as u32,
+        //         ptr::null::<u32>() as *mut u32,
+        //     ) as usize
+        // }
+    }
+
+    pub fn dequeue_diff(&self, burst_sz: usize, mp: &Mempool) -> Option<Vec<Mbuf>> {
+        let mut ptrs = Vec::with_capacity(10);
+        let rb = unsafe {
+            dpdk_sys::_rte_pktmbuf_alloc_bulk(
+                mp.get_ptr(),
+                ptrs.as_mut_ptr(),
+                // burst_sz as raw::c_uint,
+                10 as raw::c_uint,
+            )
+        };
+        if rb == 0 {
+            unsafe {
+                // pass the raw pointers
+                let sz = dpdk_sys::_rte_ring_dequeue_burst(
+                    self.get_ptr(),
+                    ptrs.as_ptr() as *mut *mut raw::c_void,
+                    ptrs.len() as u32,
+                    ptr::null::<u32>() as *mut u32,
+                );
+                #[cfg(feature = "debug")]
+                {
+                    println!("dequeing from: {:p} of size: {}", self.get_ptr(), sz);
+                }
+                ptrs.set_len(sz as usize);
+                // #[cfg(feature = "debug")]
+                // println!("ptrs len: {}", sz);
+                Some(
+                    ptrs.into_iter()
+                        .map(|ptr| Mbuf::from_ptr(ptr))
+                        .collect::<Vec<_>>(),
+                )
+            }
+        } else {
+            None
         }
     }
 
@@ -192,7 +232,7 @@ impl Ring {
     pub fn dequeue_burst(&self, pkts: &mut Vec<Mbuf>, rx_burst_max: usize) -> usize {
         // get the raw pointers to the mbufs
         #[cfg(feature = "debug")]
-        println!("dequeue_bulk");
+        println!("dequeue_burst");
         let mut ptrs = Vec::with_capacity(rx_burst_max);
         for pkt in pkts {
             ptrs.push(pkt.get_ptr());
@@ -269,6 +309,18 @@ impl Channel {
         let engine_to_client = Ring::new(RingType::E2P, socket_id as i32)?;
         let client_to_engine = Ring::new(RingType::P2E, socket_id as i32)?;
 
+        #[cfg(feature = "debug")]
+        {
+            println!(
+                "channel: lookup : engine_to_client created {:p}",
+                engine_to_client.get_ptr()
+            );
+            println!(
+                "channel: lookup : client_to_engine created {:p}",
+                client_to_engine.get_ptr()
+            );
+        }
+
         Ok(Self {
             to_engine: client_to_engine,
             to_packetiser: engine_to_client,
@@ -281,6 +333,7 @@ impl Channel {
         println!("lookup channel");
         let to_packetiser = Ring::lookup(RingType::E2P)?;
         let to_engine = Ring::lookup(RingType::P2E)?;
+
         #[cfg(feature = "debug")]
         {
             println!(
@@ -320,27 +373,27 @@ impl Channel {
 
     /// Send bulk to packetiser
     pub fn send_to_packetiser_bulk(&self, pkts: Vec<Mbuf>) -> usize {
-        // self.to_packetiser.enqueue_bulk(pkts)
-        // self.to_packetiser.enqueue_burst(pkts)
-        #[cfg(feature = "debug")]
-        println!("pkts sz: {}", pkts.len());
-        let mut i = 0;
-        for pkt in pkts {
-            #[cfg(feature = "debug")]
-            if i == 0 {
-                println!("pkt: {:#?}", &pkt);
-            }
-            match self.to_packetiser.enqueue(pkt) {
-                Ok(_) => i += 1,
-                Err(e) => {
-                    log::error!("{}: Memory error trying to send to packetiser: {}", i, e);
-                    #[cfg(feature = "debug")]
-                    println!("{}: Memory error trying to send to packetiser: {}", i, e);
-                    break;
-                }
-            }
-        }
-        i
+        self.to_packetiser.enqueue_bulk(pkts)
+        // // self.to_packetiser.enqueue_burst(pkts)
+        // #[cfg(feature = "debug")]
+        // println!("pkts sz: {}", pkts.len());
+        // let mut i = 0;
+        // for pkt in pkts {
+        //     #[cfg(feature = "debug")]
+        //     if i == 0 {
+        //         println!("pkt: {:#?}", &pkt);
+        //     }
+        //     match self.to_packetiser.enqueue(pkt) {
+        //         Ok(_) => i += 1,
+        //         Err(e) => {
+        //             log::error!("{}: Memory error trying to send to packetiser: {}", i, e);
+        //             #[cfg(feature = "debug")]
+        //             println!("{}: Memory error trying to send to packetiser: {}", i, e);
+        //             break;
+        //         }
+        //     }
+        // }
+        // i
     }
 
     /// Receive bulk from packetiser
@@ -369,6 +422,10 @@ impl Channel {
     /// Send bulk to engine
     pub fn send_to_engine_bulk(&self, pkts: Vec<Mbuf>) -> usize {
         self.to_engine.enqueue_bulk(pkts)
+    }
+
+    pub fn recv_frm_eng_diff(&self, burst_sz: usize, mp: &Mempool) -> Option<Vec<Mbuf>> {
+        self.to_packetiser.dequeue_diff(burst_sz, mp)
     }
 
     /// Receive bulk from engine

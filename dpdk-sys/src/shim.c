@@ -131,7 +131,7 @@ unsigned int
 _rte_ring_enqueue_burst(struct rte_ring *r, void *const *obj_table,
 unsigned int n, unsigned int *free_space)
 {
-        return rte_ring_enqueue_bulk(r, obj_table, n, free_space);
+        return rte_ring_enqueue_burst(r, obj_table, n, free_space);
 }
 
 void
