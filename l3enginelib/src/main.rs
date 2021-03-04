@@ -1,12 +1,11 @@
+mod process;
+
 use crossbeam::queue::ArrayQueue;
 use l3enginelib::{eal_cleanup, eal_init, Mbuf, Mempool, Port};
 use log;
 use std::{
-    fmt::format,
     io::Write,
-    iter::Enumerate,
     net::TcpStream,
-    slice,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -35,17 +34,26 @@ fn recv_pkts(port: &Port, len: usize) -> Vec<Mbuf> {
     bufs
 }
 
-fn xmit_pkts(port: &Port, out_pkts: &mut Vec<Mbuf>) -> usize {
+// fn xmit_pkts(port: &Port, out_pkts: &mut Vec<Mbuf>) -> usize {
+fn xmit_pkts(port: &Port, out_pkts: Arc<ArrayQueue<Mbuf>>) -> usize {
     let queue_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
-    let num = port.send(out_pkts, queue_id ^ 1);
-    out_pkts.clear(); // deallocate all buffers
+    let mut bufs = Vec::with_capacity(out_pkts.len());
+    while !out_pkts.is_empty() {
+        match out_pkts.pop() {
+            Some(pkt) => bufs.push(pkt),
+            None => break,
+        }
+    }
+    let num = port.send(&bufs, queue_id ^ 1);
+    // out_pkts.clear(); // deallocate all buffers
+    bufs.clear();
     num
 }
 
 fn main() {
     log::info!("Initializing DPDK env ...");
     let args = vec![
-        String::from("-l 0-1"),
+        String::from("-lcores 0-1"),
         String::from("-n 4"),
         String::from("--proc-type=primary"),
         String::from("--base-virtaddr=0x7f000000000"),
@@ -93,25 +101,44 @@ fn main() {
     println!("stream connected");
 
     // hold packets received from outside and packetiser
-    // let in_pkts: Arc<ArrayQueue<Mbuf>> = Arc::new(ArrayQueue::new(QUEUE_CAPA));
+    let in_pkts: Arc<ArrayQueue<Mbuf>> = Arc::new(ArrayQueue::new(QUEUE_CAPA));
+    let out_pkts: Arc<ArrayQueue<Mbuf>> = Arc::new(ArrayQueue::new(QUEUE_CAPA));
+
+    let in_pkt_clone = in_pkts.clone();
+    let out_pkt_clone = out_pkts.clone();
 
     // handling Ctrl+C
     let keep_running = Arc::new(AtomicBool::new(true));
     // let kr = keep_running.clone();
     handle_signal(keep_running.clone());
 
+    std::thread::spawn(move || {
+        process::process(in_pkt_clone, out_pkt_clone);
+    });
+
     while keep_running.load(Ordering::SeqCst) {
         // if !in_pkts.is_full() {
         // get new packets if the incoming queue is not full
-        let mut bufs = recv_pkts(&port, QUEUE_SZ);
+        let bufs = recv_pkts(&port, QUEUE_SZ);
         let mut drop_arp_pkts_index = Vec::with_capacity(QUEUE_SZ);
         let mut i: usize = 0;
 
-        let mut out_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
+        // let mut out_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
 
         for buf in &bufs {
             #[cfg(feature = "debug")]
-            println!("mbuf: {:#?}", &buf);
+            {
+                let core_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
+                println!("Main core index: {}", unsafe {
+                    dpdk_sys::rte_lcore_index(core_id as i32)
+                });
+                println!("Main Socket ID: {}", unsafe { dpdk_sys::rte_socket_id() });
+                println!("Next lcore ID: {}", unsafe {
+                    dpdk_sys::rte_get_next_lcore(core_id as u32, 1, 0)
+                });
+
+                println!("mbuf: {:#?}", &buf);
+            }
             let arp_ptr =
                 unsafe { dpdk_sys::_pkt_arp_response(buf.get_ptr(), (&mempool).get_ptr()) };
             if !arp_ptr.is_null() {
@@ -120,7 +147,10 @@ fn main() {
                 if let Ok(sz) = stream.write(pkt.as_bytes()) {
                     println!("sent {} bytes to proxy", sz);
                 }
-                &out_pkts.push(arp_buf);
+                match out_pkts.push(arp_buf) {
+                    Ok(()) => {}
+                    Err(arp) => drop(arp),
+                }
                 drop_arp_pkts_index.push(i); // add index of arp packet
             }
             i += 1;
@@ -134,23 +164,30 @@ fn main() {
         //     }
         // }
 
-        if bufs.len() > 0 {
-            for buf in bufs.drain(..) {
-                let offset = buf.raw().data_off;
-                let len = buf.raw().data_len;
-                match buf.read_data::<u8>(offset.into()) {
-                    Ok(ptr) => {
-                        let data = unsafe { slice::from_raw_parts(ptr.as_ptr(), len.into()) };
-                        if let Ok(sz) = stream.write(data) {
-                            println!("sent {} bytes to proxy", sz);
-                        }
-                    }
-                    Err(_) => {}
-                }
+        for buf in bufs {
+            match in_pkts.push(buf) {
+                Ok(()) => {}
+                Err(pkt) => drop(pkt),
             }
         }
 
-        xmit_pkts(&port, &mut out_pkts);
+        // if bufs.len() > 0 {
+        //     for buf in bufs.drain(..) {
+        //         let offset = buf.raw().data_off;
+        //         let len = buf.raw().data_len;
+        //         match buf.read_data::<u8>(offset.into()) {
+        //             Ok(ptr) => {
+        //                 let data = unsafe { slice::from_raw_parts(ptr.as_ptr(), len.into()) };
+        //                 if let Ok(sz) = stream.write(data) {
+        //                     println!("sent {} bytes to proxy", sz);
+        //                 }
+        //             }
+        //             Err(_) => {}
+        //         }
+        //     }
+        // }
+
+        xmit_pkts(&port, out_pkts.clone());
     }
     // }
 
