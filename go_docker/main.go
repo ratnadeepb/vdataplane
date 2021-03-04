@@ -33,7 +33,7 @@ func handleServerConnection(c net.Conn) {
 
 	// echo received messages
 	scanner := bufio.NewScanner(c)
-	f, err := os.Create("/log/data.txt")
+	f, err := os.Create("./log/data.txt")
 
 	if err != nil {
 		log.Fatal(err)
@@ -48,7 +48,7 @@ func handleServerConnection(c net.Conn) {
 		}
 
 		fmt.Println(scanner.Text())
-		_, err2 := f.WriteString(scanner.Text())
+		_, err2 := f.WriteString(scanner.Text() + "\n")
 		if err2 != nil {
 			log.Fatal(err2)
 		}
