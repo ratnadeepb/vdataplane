@@ -53,7 +53,7 @@ fn xmit_pkts(port: &Port, out_pkts: Arc<ArrayQueue<Mbuf>>) -> usize {
 fn main() {
     log::info!("Initializing DPDK env ...");
     let args = vec![
-        String::from("-lcores 0-1"),
+        String::from("-l 0-1"),
         String::from("-n 4"),
         String::from("--proc-type=primary"),
         String::from("--base-virtaddr=0x7f000000000"),
