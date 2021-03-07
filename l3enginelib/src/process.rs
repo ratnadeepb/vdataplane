@@ -1,5 +1,7 @@
+use bincode::{deserialize, serialize};
 use crossbeam::queue::ArrayQueue;
 use l3enginelib::Mbuf;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
     hash::{Hash, Hasher},
@@ -14,7 +16,7 @@ struct ConnState {
     ack_num: u32,
 }
 
-#[derive(Hash)]
+#[derive(Hash, Serialize, Deserialize)]
 struct ConnIdentity {
     dst_ip: Ipv4Addr,
     dst_mac: [u8; 6],
@@ -22,6 +24,16 @@ struct ConnIdentity {
     src_ip: Ipv4Addr,
     src_mac: [u8; 6],
     src_port: u16,
+}
+
+fn serialize_conn(conn: ConnIdentity) -> Option<Vec<u8>> {
+    match serialize(&conn) {
+        Ok(v) => {
+            println!("serialised length");
+            Some(v)
+        }
+        Err(_) => None,
+    }
 }
 
 fn hash_conn(conn: ConnIdentity) -> u64 {
