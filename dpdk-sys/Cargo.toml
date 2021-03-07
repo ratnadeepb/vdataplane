@@ -15,6 +15,6 @@ name = "dpdk_sys"
 doctest = false
 
 [build-dependencies]
-bindgen = "0.56.0"
+bindgen = "0.57.0"
 cc = "1.0"
 libc = "0.2"
