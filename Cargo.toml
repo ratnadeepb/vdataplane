@@ -3,3 +3,8 @@ members = [
 	"dpdk-sys",
 	"l3enginelib",
 ]
+
+exclude = [
+	"memenpsf/",
+	"l3nfs/",
+]
