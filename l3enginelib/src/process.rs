@@ -1,6 +1,6 @@
+use crate::Mbuf;
 use bincode::{deserialize, serialize};
 use crossbeam::queue::ArrayQueue;
-use l3enginelib::Mbuf;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -18,7 +18,7 @@ pub(crate) struct ConnState {
 }
 
 #[derive(Hash, Serialize, Deserialize, Debug)]
-pub(crate) struct ConnIdentity {
+pub struct ConnIdentity {
     dst_ip: Ipv4Addr,
     dst_mac: [u8; 6],
     dst_port: u16,
@@ -51,7 +51,7 @@ pub(crate) fn deserialize_conn(bytes: [u8; MBUF_BIN_SZ]) -> Option<ConnIdentity>
     }
 }
 
-fn hash_conn(conn: ConnIdentity) -> u64 {
+pub fn hash_conn(conn: ConnIdentity) -> u64 {
     #[cfg(feature = "debug")]
     println!("hashing connection");
     let mut hasher = DefaultHasher::new();
@@ -122,7 +122,7 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(ConnIdentity, ConnState)> {
     }
 }
 
-pub(crate) fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>) {
+pub fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>) {
     // The key is the hash value of a connection identity
     let mut connections: HashMap<u64, ConnState> = HashMap::new();
 

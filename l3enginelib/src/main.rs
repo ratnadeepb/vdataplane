@@ -1,7 +1,7 @@
-mod process;
+mod ipc;
 
 use crossbeam::queue::ArrayQueue;
-use l3enginelib::{eal_cleanup, eal_init, Mbuf, Mempool, Port};
+use l3enginelib::{eal_cleanup, eal_init, process, Mbuf, Mempool, Port};
 use log;
 use std::{
     io::Write,
@@ -113,7 +113,7 @@ fn main() {
     handle_signal(keep_running.clone());
 
     std::thread::spawn(move || {
-        process::process(in_pkt_clone, out_pkt_clone);
+        process(in_pkt_clone, out_pkt_clone);
     });
 
     while keep_running.load(Ordering::SeqCst) {
