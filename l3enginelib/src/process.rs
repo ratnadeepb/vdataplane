@@ -4,20 +4,21 @@ use l3enginelib::Mbuf;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
+    convert::TryInto,
     hash::{Hash, Hasher},
     net::Ipv4Addr,
     sync::Arc,
 };
 
 #[derive(Debug)]
-struct ConnState {
+pub(crate) struct ConnState {
     rx_win: u16,
     seq_num: u32,
     ack_num: u32,
 }
 
-#[derive(Hash, Serialize, Deserialize)]
-struct ConnIdentity {
+#[derive(Hash, Serialize, Deserialize, Debug)]
+pub(crate) struct ConnIdentity {
     dst_ip: Ipv4Addr,
     dst_mac: [u8; 6],
     dst_port: u16,
@@ -26,13 +27,27 @@ struct ConnIdentity {
     src_port: u16,
 }
 
-fn serialize_conn(conn: ConnIdentity) -> Option<Vec<u8>> {
-    match serialize(&conn) {
-        Ok(v) => {
-            println!("serialised length");
-            Some(v)
+const MBUF_BIN_SZ: usize = 24;
+
+pub(crate) fn serialize_conn(buf: &Mbuf) -> Option<[u8; MBUF_BIN_SZ]> {
+    // testing indicates connection identity is encoded to 24 bytes
+    match parse_pkt(&buf) {
+        Some((conn_id, _)) => match serialize(&conn_id) {
+            Ok(v) => Some(v.try_into().unwrap_or_default()),
+            Err(_) => None,
+        },
+        None => None,
+    }
+}
+
+pub(crate) fn deserialize_conn(bytes: [u8; MBUF_BIN_SZ]) -> Option<ConnIdentity> {
+    match deserialize(&bytes) {
+        Ok(conn) => Some(conn),
+        Err(_e) => {
+            #[cfg(feature = "debug")]
+            println!("failed to deserialize: {:#?}", _e);
+            None
         }
-        Err(_) => None,
     }
 }
 
@@ -45,10 +60,18 @@ fn hash_conn(conn: ConnIdentity) -> u64 {
 }
 
 fn parse_u32_2_ipv4(ip: u32) -> Ipv4Addr {
-    Ipv4Addr::from(ip)
+    Ipv4Addr::from(u32::from_be(ip))
 }
 
-fn parse_pkt(pkt: &Mbuf) -> Option<(u64, ConnState)> {
+fn parse_mac(mac: [u8; 6]) -> [u8; 6] {
+    let mut te_mac = [0; 6];
+    for i in 0..6 {
+        te_mac[i] = u8::from_be(mac[i]);
+    }
+    te_mac
+}
+
+fn parse_pkt(pkt: &Mbuf) -> Option<(ConnIdentity, ConnState)> {
     #[cfg(feature = "debug")]
     println!("parsing packet");
     unsafe {
@@ -58,8 +81,8 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(u64, ConnState)> {
         }
 
         let ether_hdr = *ether_hdr_ptr;
-        let dst_mac: [u8; 6] = ether_hdr.d_addr.addr_bytes;
-        let src_mac: [u8; 6] = ether_hdr.s_addr.addr_bytes;
+        let dst_mac: [u8; 6] = parse_mac(ether_hdr.d_addr.addr_bytes);
+        let src_mac: [u8; 6] = parse_mac(ether_hdr.s_addr.addr_bytes);
 
         let ip_hdr_ptr = dpdk_sys::_pkt_ipv4_hdr(pkt.get_ptr());
         if ip_hdr_ptr.is_null() {
@@ -76,11 +99,11 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(u64, ConnState)> {
         }
 
         let tcp_hdr = *tcp_hdr_ptr;
-        let src_port = tcp_hdr.src_port;
-        let dst_port = tcp_hdr.dst_port;
-        let seq_num = tcp_hdr.sent_seq;
-        let ack_num = tcp_hdr.recv_ack;
-        let rx_win = tcp_hdr.rx_win;
+        let src_port = u16::from_be(tcp_hdr.src_port);
+        let dst_port = u16::from_be(tcp_hdr.dst_port);
+        let seq_num = u32::from_be(tcp_hdr.sent_seq);
+        let ack_num = u32::from_be(tcp_hdr.recv_ack);
+        let rx_win = u16::from_be(tcp_hdr.rx_win);
 
         let conn_id = ConnIdentity {
             dst_ip,
@@ -90,13 +113,12 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(u64, ConnState)> {
             src_mac,
             src_port,
         };
-        let h = hash_conn(conn_id);
         let conn_state = ConnState {
             rx_win,
             seq_num,
             ack_num,
         };
-        Some((h, conn_state))
+        Some((conn_id, conn_state))
     }
 }
 
@@ -121,10 +143,27 @@ pub(crate) fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<
             }
             match in_pkts.pop() {
                 Some(pkt) => match parse_pkt(&pkt) {
-                    Some((k, v)) => {
-                        let _ = connections.insert(k, v);
+                    Some((conn_id, conn_state)) => {
+                        #[cfg(feature = "debug")]
+                        println!("serialising in process");
+                        // match serialize_conn(&conn_id) {
+                        //     Some(_buf) => {
+                        //         #[cfg(feature = "debug")]
+                        //         println!("got conn serliased, size: {}", _buf.len());
+                        //     }
+                        //     None => {
+                        //         #[cfg(feature = "debug")]
+                        //         println!("serialise err");
+                        //     }
+                        // }
+                        let h = hash_conn(conn_id);
+                        let _ = connections.insert(h, conn_state);
                     }
-                    None => drop(pkt),
+                    None => {
+                        #[cfg(feature = "debug")]
+                        println!("dropping in process");
+                        drop(pkt);
+                    }
                 },
                 None => {}
             }

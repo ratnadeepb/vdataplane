@@ -117,13 +117,9 @@ fn main() {
     });
 
     while keep_running.load(Ordering::SeqCst) {
-        // if !in_pkts.is_full() {
-        // get new packets if the incoming queue is not full
-        let bufs = recv_pkts(&port, QUEUE_SZ);
+        let mut bufs = recv_pkts(&port, QUEUE_SZ);
         let mut drop_arp_pkts_index = Vec::with_capacity(QUEUE_SZ);
         let mut i: usize = 0;
-
-        // let mut out_pkts: Vec<Mbuf> = Vec::with_capacity(QUEUE_SZ);
 
         for buf in &bufs {
             #[cfg(feature = "debug")]
@@ -138,11 +134,31 @@ fn main() {
                 });
 
                 println!("mbuf: {:#?}", &buf);
+                match process::serialize_conn(&buf) {
+                    Some(v) => {
+                        #[cfg(feature = "debug")]
+                        println!("got conn serliased, size: {}", v.len());
+                        match process::deserialize_conn(v) {
+                            Some(conn) => println!("got conn deserliased: {:#?}", conn),
+                            None => println!("didn't get conn serliased"),
+                        }
+                    }
+                    None => {
+                        #[cfg(feature = "debug")]
+                        println!("serialise err")
+                    }
+                }
             }
+
+            // REVIEW: right now an arp reply is sent for every packet
+            // this needs to be changed to receiving an IP from external sources
+            // and responding only for that IP
             let arp_ptr =
                 unsafe { dpdk_sys::_pkt_arp_response(buf.get_ptr(), (&mempool).get_ptr()) };
             if !arp_ptr.is_null() {
                 let arp_buf = unsafe { Mbuf::from_ptr(arp_ptr) };
+                // REVIEW: this is just sending the debug def of the packet as bytes over a TCP stream
+                // ultimately, we want to send serialised packets over this connection
                 let pkt = format!("{:#?}", buf);
                 if let Ok(sz) = stream.write(pkt.as_bytes()) {
                     println!("sent {} bytes to proxy", sz);
@@ -156,14 +172,15 @@ fn main() {
             i += 1;
         }
 
-        // // drop the arp packets before processing
-        // while !drop_arp_pkts_index.is_empty() {
-        //     match drop_arp_pkts_index.pop() {
-        //         Some(k) => drop(bufs.remove(k)),
-        //         None => break,
-        //     }
-        // }
+        // drop the arp packets before processing
+        while !drop_arp_pkts_index.is_empty() {
+            match drop_arp_pkts_index.pop() {
+                Some(k) => drop(bufs.remove(k)),
+                None => break,
+            }
+        }
 
+        // process whatever has not been dropped
         for buf in bufs {
             match in_pkts.push(buf) {
                 Ok(()) => {}
@@ -189,7 +206,6 @@ fn main() {
 
         xmit_pkts(&port, out_pkts.clone());
     }
-    // }
 
     #[cfg(feature = "debug")]
     println!("main: stopping");
