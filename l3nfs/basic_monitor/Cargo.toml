@@ -1,0 +1,10 @@
+[package]
+name = "basic_monitor"
+version = "0.1.0"
+authors = ["ratnadeepb <ratnadeep.bhattacharya1983@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+l3enginelib = { version = "0.2.0", path = "../../l3enginelib" }
