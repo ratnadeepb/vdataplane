@@ -1,6 +1,6 @@
-use crate::Mbuf;
+use crate::{srv_run, Mbuf};
 use bincode::{deserialize, serialize};
-use crossbeam::queue::ArrayQueue;
+use crossbeam::{channel::bounded, queue::ArrayQueue};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
@@ -29,14 +29,19 @@ pub struct ConnIdentity {
 
 const MBUF_BIN_SZ: usize = 24;
 
-pub(crate) fn serialize_conn(buf: &Mbuf) -> Option<[u8; MBUF_BIN_SZ]> {
-    // testing indicates connection identity is encoded to 24 bytes
-    match parse_pkt(&buf) {
-        Some((conn_id, _)) => match serialize(&conn_id) {
-            Ok(v) => Some(v.try_into().unwrap_or_default()),
-            Err(_) => None,
-        },
-        None => None,
+// pub(crate) fn serialize_conn(buf: &Mbuf) -> Option<[u8; MBUF_BIN_SZ]> {
+pub(crate) fn serialize_conn(conn_id: &ConnIdentity) -> Option<[u8; MBUF_BIN_SZ]> {
+    // // testing indicates connection identity is encoded to 24 bytes
+    // match parse_pkt(&buf) {
+    //     Some((conn_id, _)) => match serialize(&conn_id) {
+    //         Ok(v) => Some(v.try_into().unwrap_or_default()),
+    //         Err(_) => None,
+    //     },
+    //     None => None,
+    // }
+    match serialize(&conn_id) {
+        Ok(v) => Some(v.try_into().unwrap_or_default()),
+        Err(_) => None,
     }
 }
 
@@ -125,11 +130,13 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(ConnIdentity, ConnState)> {
 pub fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>) {
     // The key is the hash value of a connection identity
     let mut connections: HashMap<u64, ConnState> = HashMap::new();
+    let (m_sender, m_recvr) = bounded(10);
+
+    srv_run(m_recvr);
 
     loop {
         // if there are packets to process
         if !in_pkts.is_empty() {
-            // if in_pkts.is_full() {
             #[cfg(feature = "debug")]
             {
                 let core_id = unsafe { dpdk_sys::_rte_lcore_id() as u16 };
@@ -146,22 +153,35 @@ pub fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>)
                     Some((conn_id, conn_state)) => {
                         #[cfg(feature = "debug")]
                         println!("serialising in process");
-                        // match serialize_conn(&conn_id) {
-                        //     Some(_buf) => {
-                        //         #[cfg(feature = "debug")]
-                        //         println!("got conn serliased, size: {}", _buf.len());
-                        //     }
-                        //     None => {
-                        //         #[cfg(feature = "debug")]
-                        //         println!("serialise err");
-                        //     }
-                        // }
+                        match serialize_conn(&conn_id) {
+                            Some(buf) => {
+                                #[cfg(feature = "debug")]
+                                println!("got conn serliased, size: {}", buf.len());
+                                match m_sender.try_send(buf) {
+                                    Ok(_) => {}
+                                    Err(_e) => {
+                                        #[cfg(feature = "debug")]
+                                        println!("error sending for processing; {:#?}", _e);
+                                    }
+                                }
+                            }
+                            None => {
+                                #[cfg(feature = "debug")]
+                                println!("serialise err");
+                            }
+                        }
                         let h = hash_conn(conn_id);
                         let _ = connections.insert(h, conn_state);
                     }
                     None => {
                         #[cfg(feature = "debug")]
-                        println!("dropping in process");
+                        {
+                            match parse_pkt(&pkt) {
+                                Some(conn) => println!("got conn deserliased: {:#?}", conn),
+                                None => println!("didn't get conn"),
+                            }
+                            println!("dropping in process: {:#?}", &pkt);
+                        }
                         drop(pkt);
                     }
                 },

@@ -1,5 +1,3 @@
-mod ipc;
-
 use crossbeam::queue::ArrayQueue;
 use l3enginelib::{eal_cleanup, eal_init, process, Mbuf, Mempool, Port};
 use log;
@@ -134,20 +132,20 @@ fn main() {
                 });
 
                 println!("mbuf: {:#?}", &buf);
-                match process::serialize_conn(&buf) {
-                    Some(v) => {
-                        #[cfg(feature = "debug")]
-                        println!("got conn serliased, size: {}", v.len());
-                        match process::deserialize_conn(v) {
-                            Some(conn) => println!("got conn deserliased: {:#?}", conn),
-                            None => println!("didn't get conn serliased"),
-                        }
-                    }
-                    None => {
-                        #[cfg(feature = "debug")]
-                        println!("serialise err")
-                    }
-                }
+                // match process::serialize_conn(&buf) {
+                //     Some(v) => {
+                //         #[cfg(feature = "debug")]
+                //         println!("got conn serliased, size: {}", v.len());
+                //         match process::deserialize_conn(v) {
+                //             Some(conn) => println!("got conn deserliased: {:#?}", conn),
+                //             None => println!("didn't get conn serliased"),
+                //         }
+                //     }
+                //     None => {
+                //         #[cfg(feature = "debug")]
+                //         println!("serialise err")
+                //     }
+                // }
             }
 
             // REVIEW: right now an arp reply is sent for every packet

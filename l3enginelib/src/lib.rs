@@ -5,7 +5,9 @@
 //! and without also having to manually figure out certain interaction semantics
 
 pub mod apis;
+pub mod ipc;
 pub mod process;
 
 pub use apis::*;
+pub use ipc::*;
 pub use process::*;

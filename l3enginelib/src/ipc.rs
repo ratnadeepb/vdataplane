@@ -1,18 +1,18 @@
 use chashmap::CHashMap;
 use crossbeam::{
     channel::{bounded, Receiver, Sender},
-    select,
 };
 use memenpsf::Interface;
 use rand::random;
 use rayon::ThreadPoolBuilder;
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
+    collections::{hash_map::DefaultHasher},
     fs,
     hash::{Hash, Hasher},
     io::Read,
     os::unix::net::{UnixListener, UnixStream},
-    sync::Arc,
+    sync::{Arc, RwLock},
+    thread,
 };
 
 // Functions to be used by both servers and clients
@@ -38,11 +38,14 @@ fn run_loop(int: Interface<[u8; 24]>, recvr: Receiver<[u8; 24]>, sender: Sender<
             Err(_e) => {
                 #[cfg(feature = "debug")]
                 println!("empty recv channel; {:#?}", _e);
+                break;
             }
         }
 
         let bufs = int.recv_vectored();
         if bufs.len() > 0 {
+            #[cfg(feature = "debug")]
+            println!("received from client NF");
             for buf in bufs {
                 match sender.try_send(buf) {
                     Ok(_) => {}
@@ -70,7 +73,8 @@ pub fn run(
 }
 
 // Functions to be used by the server only
-const CAP: usize = 32;
+const CAP: usize = 32; // NOTE: should match the CAP on the client NFs
+const NUM_LISTENER_THRDS: usize = 5;
 
 pub(crate) struct NFMap {
     map: CHashMap<u64, (Receiver<[u8; 24]>, Sender<[u8; 24]>)>,
@@ -83,45 +87,106 @@ impl NFMap {
     }
 
     pub(crate) fn insert(&self, key: u64, val: (Receiver<[u8; 24]>, Sender<[u8; 24]>)) {
-        self.map.insert(key, val);
+        let _ = self.map.insert(key, val);
     }
 }
 
+fn send_to_all_nfs(
+    pkt: [u8; 24],
+    names: &Vec<String>,
+    map: &CHashMap<u64, (Receiver<[u8; 24]>, Sender<[u8; 24]>)>,
+) {
+    for n in names {
+        let mut hasher = DefaultHasher::new();
+        n.hash(&mut hasher);
+        let h = hasher.finish();
+        match map.get(&h) {
+            Some(v) => {
+                let (_r, s) = &*v;
+                match s.try_send(pkt) {
+                    Ok(_) => {}
+                    Err(_e) => {}
+                }
+            }
+            None => {}
+        }
+    }
+}
 
-
-pub(crate) fn srv_run() {
+pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
     let sock_name = "/tmp/fd-passrd.socket";
     fs::remove_file(sock_name).ok();
     let listener = UnixListener::bind(sock_name).unwrap();
+    listener
+        .set_nonblocking(true)
+        .expect("Couldn't set non blocking");
 
     let client_map = Arc::new(NFMap::new());
+    let map = client_map.clone();
 
-    let pool = ThreadPoolBuilder::new().num_threads(5).build().unwrap(); // fatal error
+    let client_names = Arc::new(RwLock::new(Vec::<String>::new()));
+    let names = client_names.clone();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let name = format!("eth{}", random::<u8>());
-                let cap = CAP;
-                let typ = 1; // server
-                let mut buf = [0; 30];
+    let pool = ThreadPoolBuilder::new()
+        .num_threads(NUM_LISTENER_THRDS)
+        .build()
+        .unwrap(); // fatal error
 
-                stream.read(&mut buf).unwrap();
-                let client_name = String::from_utf8(Vec::from(buf)).unwrap();
-                println!("client name: {}", &client_name);
+    let listener_thrd = thread::spawn(move || {
+        for stream in listener.incoming() {
+            // #[cfg(feature = "debug")]
+            // println!("running listener loop");
+            match stream {
+                Ok(mut stream) => {
+                    let name = format!("eth{}", random::<u8>());
+                    let cap = CAP;
+                    let typ = 1; // server
+                    let mut buf = [0; 30];
+                    // let buf = "client1".as_bytes();
 
-                let mut hasher = DefaultHasher::new();
-                client_name.hash(&mut hasher);
-                let h_name = hasher.finish();
+                    stream.read(&mut buf).unwrap();
 
-                let (s1, recvr) = bounded::<[u8; 24]>(CAP);
-                let (sender, r1) = bounded::<[u8; 24]>(CAP);
+                    let client_name = String::from_utf8(Vec::from(buf)).unwrap();
+                    println!("client name: {}", &client_name);
+                    match client_names.write() {
+                        Ok(mut names) => {
+                            (*names).push(client_name.clone());
+                        }
+                        Err(p) => {
+                            let mut names = p.into_inner();
+                            (*names).push(client_name.clone());
+                        }
+                    }
 
-                client_map.insert(h_name, (r1, s1));
+                    let mut hasher = DefaultHasher::new();
+                    client_name.hash(&mut hasher);
+                    let name_hash = hasher.finish();
 
-                pool.install(|| run(name, cap, stream, typ, recvr, sender));
+                    let (s1, recvr) = bounded::<[u8; 24]>(CAP);
+                    let (sender, r1) = bounded::<[u8; 24]>(CAP);
+
+                    client_map.insert(name_hash, (r1, s1));
+
+                    pool.install(|| run(name, cap, stream, typ, recvr, sender));
+                }
+                Err(_) => {}
             }
-            Err(_) => {}
         }
+    });
+
+    println!("out of the streaming loop");
+    match m_recvr.try_recv() {
+        Ok(pkt) => match names.read() {
+            Ok(names) => {
+                send_to_all_nfs(pkt, &*names, &map.map);
+            }
+            Err(p) => {
+                let names = p.into_inner();
+                send_to_all_nfs(pkt, &*names, &map.map);
+            }
+        },
+        Err(_e) => {}
     }
+
+    let _ = listener_thrd.join();
 }
