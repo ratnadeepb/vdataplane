@@ -2,18 +2,15 @@ use chashmap::CHashMap;
 use crossbeam::channel::{bounded, Receiver, Sender};
 use memenpsf::{Interface, Stream};
 use rand::random;
-// use rayon::ThreadPoolBuilder;
+
 use std::{
     collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
-    // io::Read,
-    // os::unix::net::{UnixListener, UnixStream},
     sync::{Arc, RwLock},
-    // thread,
 };
 
-use async_std::os::unix::net::{UnixListener, UnixStream};
+use async_std::os::unix::net::UnixListener;
 use async_std::prelude::*;
 
 // Functions to be used by both servers and clients
@@ -114,10 +111,15 @@ fn send_to_all_nfs(
     }
 }
 
+/// client name should be exactly this size
+const CLIENT_NAME_SZ: usize = 30;
+
 pub(crate) async fn srv_run(m_recvr: Receiver<[u8; 24]>) {
     let sock_name = "/tmp/fd-passrd.socket";
     fs::remove_file(sock_name).ok();
     let listener = UnixListener::bind(sock_name).await.unwrap();
+
+    // if using the std (sync) listener then it should be set to nonblocking
     // listener
     //     .set_nonblocking(true)
     //     .expect("Couldn't set non blocking");
@@ -128,26 +130,16 @@ pub(crate) async fn srv_run(m_recvr: Receiver<[u8; 24]>) {
     let client_names = Arc::new(RwLock::new(Vec::<String>::new()));
     let names = client_names.clone();
 
-    // let pool = ThreadPoolBuilder::new()
-    //     .num_threads(NUM_LISTENER_THRDS)
-    //     .build()
-    //     .unwrap(); // fatal error
-
-    // let listener_thrd = thread::spawn(move || {
     let listener_thrd = tokio::spawn(async move {
         let mut incoming = listener.incoming();
 
-        // for stream in listener.incoming() {
         while let Some(stream) = incoming.next().await {
-            // #[cfg(feature = "debug")]
-            // println!("running listener loop");
             match stream {
                 Ok(mut stream) => {
                     let name = format!("eth{}", random::<u8>());
                     let cap = CAP;
                     let typ = 1; // server
-                    let mut buf = [0; 30];
-                    // let buf = "client1".as_bytes();
+                    let mut buf = [0; CLIENT_NAME_SZ];
 
                     stream.s_read(&mut buf).unwrap();
 
@@ -175,8 +167,6 @@ pub(crate) async fn srv_run(m_recvr: Receiver<[u8; 24]>) {
                     tokio::spawn(
                         async move { run(name, cap, Box::new(stream), typ, recvr, sender) },
                     );
-
-                    // pool.install(|| run(name, cap, stream, typ, recvr, sender));
                 }
                 Err(_) => {}
             }
@@ -196,7 +186,5 @@ pub(crate) async fn srv_run(m_recvr: Receiver<[u8; 24]>) {
         },
         Err(_e) => {}
     }
-
-    // let _ = listener_thrd.join();
-    listener_thrd.await;
+    let _ = listener_thrd.await;
 }
