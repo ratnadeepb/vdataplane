@@ -23,6 +23,9 @@ fn monitor(bufs: Vec<[u8; 24]>) {
     }
 }
 
+/// Number of bytes sent should match the number of bytes expected by the server
+const CLIENT_NAME_SZ: usize = 30; // should be same as in l3enginelib/ipc
+
 #[async_std::main]
 async fn main() {
     let sock_name = "/tmp/fd-passrd.socket";
@@ -30,9 +33,15 @@ async fn main() {
     let name = format!("eth{}", random::<u8>());
     let cap = CAP;
     let typ = 0; // client
-    let buf = "basic_monitor".as_bytes();
 
-    match stream.write(&buf).await {
+    // pad with 0s to make buffer of length CLIENT_NAME_SZ
+    let mut b = vec![0; CLIENT_NAME_SZ];
+    let buf = "basic_monitor".as_bytes();
+    for i in 0..buf.len() {
+        b[i] = buf[i];
+    }
+
+    match stream.write(&b).await {
         Ok(sz) => println!("sent name: {}", sz),
         Err(e) => println!("error sending name: {}", e),
     }
@@ -44,9 +53,10 @@ async fn main() {
         let bufs = interface.recv_vectored();
         if bufs.len() > 0 {
             monitor(bufs);
-        } else {
-            println!("no bufs received");
-        }
+        } 
+        // else {
+        //     println!("no bufs received");
+        // }
         let pkt = [0; 24];
         match interface.xmit(pkt) {
             Ok(_) => {}
