@@ -1,0 +1,17 @@
+[package]
+name = "memenpsf"
+version = "0.1.0"
+authors = ["ratnadeepb <ratnadeep.bhattacharya1983@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ipc-queue = { version = "0.1.0", path = "../ipc-queue"}
+fdpass = { version = "0.1.0", path = "../fdpass-rs" }
+shm_open_anonymous = "1.0.0"
+libc = "0.2.85"
+crossbeam = "0.8.0"
+rand = "0.8.3"
+async-std = "1.9.0"
+fd = "0.2"

@@ -1,0 +1,10 @@
+[workspace]
+members = [
+	"fdpass-rs",
+	"memenpsf",
+	"ipc-queue",
+]
+
+exclude = [
+	"examples/",
+]
