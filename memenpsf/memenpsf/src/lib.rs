@@ -80,7 +80,7 @@ impl Stream for async_std::os::unix::net::UnixStream {
         async_std::task::block_on(self.read(buf))
     }
 
-    fn s_set_nonblocking(&self, nonblocking: bool) -> Result<()> {
+    fn s_set_nonblocking(&self, _nonblocking: bool) -> Result<()> {
         Ok(())
     }
 
@@ -111,6 +111,7 @@ impl<T: std::fmt::Debug + std::marker::Copy> MemEnpsf<T> {
     fn new_srv(name: String, cap: usize, mut stream: Box<dyn Stream>) -> Self {
         // let fd = fdpass::recv_fd(&mut stream, vec![0u8]).unwrap();
         let fd = stream.recv_fd().unwrap();
+        println!("fd received: {}", fd.as_raw_fd());
         unsafe { ftruncate(fd.as_raw_fd(), cap as i64) };
         let shm = unsafe {
             mmap(
@@ -140,9 +141,9 @@ impl<T: std::fmt::Debug + std::marker::Copy> MemEnpsf<T> {
     fn new_client(name: String, cap: usize, mut stream: Box<dyn Stream>) -> Self {
         println!("new client func");
         let fd = shm_open_anonymous::shm_open_anonymous();
-        println!("fd created");
+        println!("fd created: {}", fd);
         // if let Err(e) = fdpass::send_fd(&mut stream, &[0], &fd) {
-        if let Err(e) = stream.recv_fd() {
+        if let Err(e) = stream.send_fd(fd.as_raw_fd()) {
             println!("Errored out: {:#?}", e);
         }
         println!("fd sent");

@@ -198,7 +198,7 @@ pub fn recvmsg<T>(
             // Type does not match the size + alignement
             return Err(io::Error::new(
                 io::ErrorKind::Other,
-                format!("Short write: {}", msg.msg_controllen).as_str(),
+                format!("Short msg ctrllen write: {}", msg.msg_controllen).as_str(),
             ));
         }
         size
@@ -207,7 +207,7 @@ pub fn recvmsg<T>(
         // Bad length
         return Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("Short write: {}", ctrl.cmsg_len).as_str(),
+            format!("Short ctrl write: {}", ctrl.cmsg_len).as_str(),
         ));
     }
     Ok((size, iov_data, ctrl.__cmsg_data))
