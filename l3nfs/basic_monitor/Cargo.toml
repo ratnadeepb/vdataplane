@@ -14,3 +14,4 @@ l3enginelib = { version = "0.2.0", path = "../../l3enginelib" }
 memenpsf = { version = "0.1.0", path = "../../memenpsf/memenpsf" }
 crossbeam = "0.8.0"
 rand = "0.8.3"
+async-std = { version = "1.9.0", features = ["attributes"] }

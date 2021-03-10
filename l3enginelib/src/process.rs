@@ -127,12 +127,12 @@ fn parse_pkt(pkt: &Mbuf) -> Option<(ConnIdentity, ConnState)> {
     }
 }
 
-pub fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>) {
+pub async fn process(in_pkts: Arc<ArrayQueue<Mbuf>>, _out_pkts: Arc<ArrayQueue<Mbuf>>) {
     // The key is the hash value of a connection identity
     let mut connections: HashMap<u64, ConnState> = HashMap::new();
     let (m_sender, m_recvr) = bounded(10);
 
-    srv_run(m_recvr);
+    srv_run(m_recvr).await;
 
     loop {
         // if there are packets to process

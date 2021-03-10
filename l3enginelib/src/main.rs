@@ -9,6 +9,7 @@ use std::{
         Arc,
     },
 };
+use tokio;
 
 const G_MEMPOOL_NAME: &str = "GLOBAL_MEMPOOL";
 const QUEUE_SZ: usize = 32;
@@ -48,7 +49,8 @@ fn xmit_pkts(port: &Port, out_pkts: Arc<ArrayQueue<Mbuf>>) -> usize {
     num
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     log::info!("Initializing DPDK env ...");
     let args = vec![
         String::from("-l 0-1"),
@@ -110,9 +112,13 @@ fn main() {
     // let kr = keep_running.clone();
     handle_signal(keep_running.clone());
 
-    std::thread::spawn(move || {
-        process(in_pkt_clone, out_pkt_clone);
+    tokio::spawn(async move {
+        process(in_pkt_clone, out_pkt_clone).await;
     });
+
+    // std::thread::spawn(move || {
+    //     process(in_pkt_clone, out_pkt_clone);
+    // });
 
     while keep_running.load(Ordering::SeqCst) {
         let mut bufs = recv_pkts(&port, QUEUE_SZ);

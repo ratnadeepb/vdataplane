@@ -1,23 +1,24 @@
 use chashmap::CHashMap;
-use crossbeam::{
-    channel::{bounded, Receiver, Sender},
-};
-use memenpsf::Interface;
+use crossbeam::channel::{bounded, Receiver, Sender};
+use memenpsf::{Interface, Stream};
 use rand::random;
-use rayon::ThreadPoolBuilder;
+// use rayon::ThreadPoolBuilder;
 use std::{
-    collections::{hash_map::DefaultHasher},
+    collections::hash_map::DefaultHasher,
     fs,
     hash::{Hash, Hasher},
-    io::Read,
-    os::unix::net::{UnixListener, UnixStream},
+    // io::Read,
+    // os::unix::net::{UnixListener, UnixStream},
     sync::{Arc, RwLock},
-    thread,
+    // thread,
 };
+
+use async_std::os::unix::net::{UnixListener, UnixStream};
+use async_std::prelude::*;
 
 // Functions to be used by both servers and clients
 
-pub fn new_int(name: String, cap: usize, stream: UnixStream, typ: u8) -> Interface<[u8; 24]> {
+pub fn new_int(name: String, cap: usize, stream: Box<dyn Stream>, typ: u8) -> Interface<[u8; 24]> {
     Interface::<[u8; 24]>::new(name, cap, stream, typ)
 }
 
@@ -63,7 +64,7 @@ fn run_loop(int: Interface<[u8; 24]>, recvr: Receiver<[u8; 24]>, sender: Sender<
 pub fn run(
     name: String,
     cap: usize,
-    stream: UnixStream,
+    stream: Box<dyn Stream>,
     typ: u8,
     recvr: Receiver<[u8; 24]>,
     sender: Sender<[u8; 24]>,
@@ -74,7 +75,7 @@ pub fn run(
 
 // Functions to be used by the server only
 const CAP: usize = 32; // NOTE: should match the CAP on the client NFs
-const NUM_LISTENER_THRDS: usize = 5;
+                       // const NUM_LISTENER_THRDS: usize = 5;
 
 pub(crate) struct NFMap {
     map: CHashMap<u64, (Receiver<[u8; 24]>, Sender<[u8; 24]>)>,
@@ -113,13 +114,13 @@ fn send_to_all_nfs(
     }
 }
 
-pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
+pub(crate) async fn srv_run(m_recvr: Receiver<[u8; 24]>) {
     let sock_name = "/tmp/fd-passrd.socket";
     fs::remove_file(sock_name).ok();
-    let listener = UnixListener::bind(sock_name).unwrap();
-    listener
-        .set_nonblocking(true)
-        .expect("Couldn't set non blocking");
+    let listener = UnixListener::bind(sock_name).await.unwrap();
+    // listener
+    //     .set_nonblocking(true)
+    //     .expect("Couldn't set non blocking");
 
     let client_map = Arc::new(NFMap::new());
     let map = client_map.clone();
@@ -127,13 +128,17 @@ pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
     let client_names = Arc::new(RwLock::new(Vec::<String>::new()));
     let names = client_names.clone();
 
-    let pool = ThreadPoolBuilder::new()
-        .num_threads(NUM_LISTENER_THRDS)
-        .build()
-        .unwrap(); // fatal error
+    // let pool = ThreadPoolBuilder::new()
+    //     .num_threads(NUM_LISTENER_THRDS)
+    //     .build()
+    //     .unwrap(); // fatal error
 
-    let listener_thrd = thread::spawn(move || {
-        for stream in listener.incoming() {
+    // let listener_thrd = thread::spawn(move || {
+    let listener_thrd = tokio::spawn(async move {
+        let mut incoming = listener.incoming();
+
+        // for stream in listener.incoming() {
+        while let Some(stream) = incoming.next().await {
             // #[cfg(feature = "debug")]
             // println!("running listener loop");
             match stream {
@@ -144,7 +149,7 @@ pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
                     let mut buf = [0; 30];
                     // let buf = "client1".as_bytes();
 
-                    stream.read(&mut buf).unwrap();
+                    stream.s_read(&mut buf).unwrap();
 
                     let client_name = String::from_utf8(Vec::from(buf)).unwrap();
                     println!("client name: {}", &client_name);
@@ -167,7 +172,11 @@ pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
 
                     client_map.insert(name_hash, (r1, s1));
 
-                    pool.install(|| run(name, cap, stream, typ, recvr, sender));
+                    tokio::spawn(
+                        async move { run(name, cap, Box::new(stream), typ, recvr, sender) },
+                    );
+
+                    // pool.install(|| run(name, cap, stream, typ, recvr, sender));
                 }
                 Err(_) => {}
             }
@@ -188,5 +197,6 @@ pub(crate) fn srv_run(m_recvr: Receiver<[u8; 24]>) {
         Err(_e) => {}
     }
 
-    let _ = listener_thrd.join();
+    // let _ = listener_thrd.join();
+    listener_thrd.await;
 }
